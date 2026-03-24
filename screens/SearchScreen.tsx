@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,30 +7,73 @@ import {
   TouchableOpacity,
   TextInput,
   SafeAreaView,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
-import { MOCK_ALBUMS, TRENDING_ALBUMS, GENRES } from '../constants/mockData';
+import { Album } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
+import { Artist, SearchResults, searchAll, getNewReleases } from '../services/spotify';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+type FilterType = 'all' | 'albums' | 'songs' | 'artists';
+
+const FILTERS: { key: FilterType; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'albums', label: 'Albums' },
+  { key: 'songs', label: 'Songs' },
+  { key: 'artists', label: 'Artists' },
+];
 
 export default function SearchScreen() {
   const navigation = useNavigation<Nav>();
   const [query, setQuery] = useState('');
-  const [activeGenre, setActiveGenre] = useState('All');
   const [focused, setFocused] = useState(false);
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [results, setResults] = useState<SearchResults>({ albums: [], tracks: [], artists: [] });
+  const [trending, setTrending] = useState<Album[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const results = query.length > 1
-    ? MOCK_ALBUMS.filter(
-        (a) =>
-          a.title.toLowerCase().includes(query.toLowerCase()) ||
-          a.artist.toLowerCase().includes(query.toLowerCase())
-      )
-    : [];
+  useEffect(() => {
+    getNewReleases(10).then(setTrending).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.length < 2) {
+      setResults({ albums: [], tracks: [], artists: [] });
+      setSearching(false);
+      setSearchError(null);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    debounceRef.current = setTimeout(() => {
+      searchAll(query)
+        .then((r) => { setResults(r); setSearchError(null); })
+        .catch((e) => {
+          console.error('[Spotify search error]', e?.message ?? e);
+          setSearchError(e?.message ?? 'Search failed');
+          setResults({ albums: [], tracks: [], artists: [] });
+        })
+        .finally(() => setSearching(false));
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query]);
+
+  const showAlbums = filter === 'all' || filter === 'albums';
+  const showSongs = filter === 'all' || filter === 'songs';
+  const showArtists = filter === 'all' || filter === 'artists';
+  const totalResults =
+    (showAlbums ? results.albums.length : 0) +
+    (showSongs ? results.tracks.length : 0) +
+    (showArtists ? results.artists.length : 0);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -42,6 +85,7 @@ export default function SearchScreen() {
       >
         <Text style={styles.title}>Search</Text>
 
+        {/* ── Search bar ── */}
         <View style={[styles.searchBar, focused && styles.searchBarFocused]}>
           <Ionicons name="search" size={18} color={Colors.muted} />
           <TextInput
@@ -49,7 +93,7 @@ export default function SearchScreen() {
             placeholder="Albums, artists, songs..."
             placeholderTextColor={Colors.muted}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(t) => { setQuery(t); setFilter('all'); }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             returnKeyType="search"
@@ -62,106 +106,149 @@ export default function SearchScreen() {
         </View>
 
         {query.length > 1 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>
-              {results.length} result{results.length !== 1 ? 's' : ''}
-            </Text>
-            {results.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="musical-notes-outline" size={40} color={Colors.muted} />
-                <Text style={styles.emptyText}>Nothing found for "{query}"</Text>
-              </View>
-            ) : (
-              results.map((album) => (
-                <TouchableOpacity
-                  key={album.id}
-                  style={styles.resultRow}
-                  onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                  activeOpacity={0.75}
-                >
-                  <AlbumCover album={album} size={50} />
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultTitle}>{album.title}</Text>
-                    <Text style={styles.resultSub}>{album.artist} · {album.year}</Text>
-                    <View style={styles.genreRow}>
-                      {album.genre.slice(0, 2).map((g) => (
-                        <View key={g} style={styles.genreTag}>
-                          <Text style={styles.genreText}>{g}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={Colors.muted} />
-                </TouchableOpacity>
-              ))
-            )}
-          </View>
-        ) : (
           <>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.genreScroll}
-            >
-              {GENRES.map((g) => (
+            {/* ── Filter chips ── */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+              {FILTERS.map((f) => (
                 <TouchableOpacity
-                  key={g}
-                  style={[styles.genreChip, activeGenre === g && styles.genreChipActive]}
-                  onPress={() => setActiveGenre(g)}
+                  key={f.key}
+                  style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
+                  onPress={() => setFilter(f.key)}
                 >
-                  <Text style={[styles.genreChipText, activeGenre === g && styles.genreChipTextActive]}>
-                    {g}
+                  <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>
+                    {f.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Trending This Week</Text>
-                <Ionicons name="flame" size={16} color={Colors.accent} />
+            {searching ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator color={Colors.primary} />
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingScroll}>
-                {TRENDING_ALBUMS.map((album, idx) => (
-                  <TouchableOpacity
-                    key={album.id}
-                    style={styles.trendingCard}
-                    onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.trendingRank}>
-                      <Text style={styles.trendingRankText}>{idx + 1}</Text>
-                    </View>
-                    <AlbumCover album={album} size={120} borderRadius={14} />
-                    <Text style={styles.trendingTitle} numberOfLines={1}>{album.title}</Text>
-                    <Text style={styles.trendingArtist} numberOfLines={1}>{album.artist}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+            ) : searchError ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="alert-circle-outline" size={40} color={Colors.muted} />
+                <Text style={styles.emptyText}>{searchError}</Text>
+              </View>
+            ) : totalResults === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="musical-notes-outline" size={40} color={Colors.muted} />
+                <Text style={styles.emptyText}>Nothing found for "{query}"</Text>
+              </View>
+            ) : (
+              <>
+                {/* ── Albums ── */}
+                {showAlbums && results.albums.length > 0 && (
+                  <View style={styles.section}>
+                    {filter === 'all' && <Text style={styles.sectionTitle}>Albums</Text>}
+                    {results.albums.map((album) => (
+                      <TouchableOpacity
+                        key={album.id}
+                        style={styles.resultRow}
+                        onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
+                        activeOpacity={0.75}
+                      >
+                        <AlbumCover album={album} size={50} borderRadius={8} />
+                        <View style={styles.resultInfo}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>{album.title}</Text>
+                          <Text style={styles.resultSub} numberOfLines={1}>{album.artist} · {album.year}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={Colors.muted} />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Browse All</Text>
-              <View style={styles.grid}>
-                {MOCK_ALBUMS.map((album) => (
-                  <TouchableOpacity
-                    key={album.id}
-                    style={styles.gridItem}
-                    onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                    activeOpacity={0.8}
-                  >
-                    <AlbumCover album={album} size={160} borderRadius={12} />
-                    <Text style={styles.gridTitle} numberOfLines={1}>{album.title}</Text>
-                    <Text style={styles.gridArtist} numberOfLines={1}>{album.artist}</Text>
-                  </TouchableOpacity>
-                ))}
+                {/* ── Songs ── */}
+                {showSongs && results.tracks.length > 0 && (
+                  <View style={styles.section}>
+                    {filter === 'all' && <Text style={styles.sectionTitle}>Songs</Text>}
+                    {results.tracks.map((track) => (
+                      <TouchableOpacity
+                        key={track.id}
+                        style={styles.resultRow}
+                        onPress={() => navigation.navigate('AlbumDetail', { id: track.album.id })}
+                        activeOpacity={0.75}
+                      >
+                        <AlbumCover album={track.album} size={50} borderRadius={8} />
+                        <View style={styles.resultInfo}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>{track.title}</Text>
+                          <Text style={styles.resultSub} numberOfLines={1}>{track.artist}</Text>
+                        </View>
+                        <Text style={styles.duration}>{track.duration}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* ── Artists ── */}
+                {showArtists && results.artists.length > 0 && (
+                  <View style={styles.section}>
+                    {filter === 'all' && <Text style={styles.sectionTitle}>Artists</Text>}
+                    {results.artists.map((artist) => (
+                      <View key={artist.id} style={styles.resultRow}>
+                        {artist.image ? (
+                          <Image source={{ uri: artist.image }} style={styles.artistImage} />
+                        ) : (
+                          <View style={styles.artistImagePlaceholder}>
+                            <Text style={styles.artistInitial}>{artist.name.charAt(0)}</Text>
+                          </View>
+                        )}
+                        <View style={styles.resultInfo}>
+                          <Text style={styles.resultTitle} numberOfLines={1}>{artist.name}</Text>
+                          <Text style={styles.resultSub} numberOfLines={1}>
+                            {artist.genres.slice(0, 2).join(', ') || 'Artist'}
+                            {artist.followersCount > 0 ? ` · ${formatFollowers(artist.followersCount)}` : ''}
+                          </Text>
+                        </View>
+                        <Ionicons name="person" size={16} color={Colors.muted} />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {/* ── New Releases ── */}
+            {trending.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>New Releases</Text>
+                  <Ionicons name="flame" size={16} color={Colors.accent} />
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingScroll}>
+                  {trending.map((album, idx) => (
+                    <TouchableOpacity
+                      key={album.id}
+                      style={styles.trendingCard}
+                      onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.trendingRank}>
+                        <Text style={styles.trendingRankText}>{idx + 1}</Text>
+                      </View>
+                      <AlbumCover album={album} size={120} borderRadius={14} />
+                      <Text style={styles.trendingTitle} numberOfLines={1}>{album.title}</Text>
+                      <Text style={styles.trendingArtist} numberOfLines={1}>{album.artist}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </View>
-            </View>
+            )}
           </>
         )}
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function formatFollowers(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return `${n}`;
 }
 
 const styles = StyleSheet.create({
@@ -170,71 +257,47 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
   title: { color: Colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16 },
   searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10,
+    marginBottom: 16, borderWidth: 1, borderColor: Colors.border,
   },
   searchBarFocused: { borderColor: Colors.primary },
   searchInput: { flex: 1, color: Colors.text, fontSize: 15 },
-  section: { marginBottom: 24 },
-  sectionLabel: { color: Colors.muted, fontSize: 13, marginBottom: 12 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
-  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '700' },
-  genreScroll: { gap: 8, paddingRight: 8, marginBottom: 20 },
-  genreChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  filterScroll: { gap: 8, paddingRight: 8, marginBottom: 16 },
+  filterChip: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
   },
-  genreChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  genreChipText: { color: Colors.muted, fontSize: 13, fontWeight: '500' },
-  genreChipTextActive: { color: Colors.primary, fontWeight: '700' },
+  filterChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
+  filterText: { color: Colors.muted, fontSize: 13, fontWeight: '500' },
+  filterTextActive: { color: Colors.primary, fontWeight: '700' },
+  section: { marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
+  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 10 },
+  resultRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface, borderRadius: 14, padding: 12, marginBottom: 8,
+  },
+  resultInfo: { flex: 1, gap: 3 },
+  resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 14 },
+  resultSub: { color: Colors.textSecondary, fontSize: 12 },
+  duration: { color: Colors.muted, fontSize: 12 },
+  artistImage: { width: 50, height: 50, borderRadius: 25 },
+  artistImagePlaceholder: {
+    width: 50, height: 50, borderRadius: 25,
+    backgroundColor: Colors.surfaceAlt, justifyContent: 'center', alignItems: 'center',
+  },
+  artistInitial: { color: Colors.text, fontSize: 20, fontWeight: '700' },
   trendingScroll: { gap: 14, paddingRight: 8 },
   trendingCard: { width: 130, gap: 6, position: 'relative' },
   trendingRank: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    zIndex: 1,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'absolute', top: 8, left: 8, zIndex: 1,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center',
   },
   trendingRankText: { color: Colors.text, fontSize: 11, fontWeight: '700' },
   trendingTitle: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   trendingArtist: { color: Colors.muted, fontSize: 12 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  gridItem: { width: '47%', gap: 6 },
-  gridTitle: { color: Colors.text, fontSize: 13, fontWeight: '600' },
-  gridArtist: { color: Colors.muted, fontSize: 12 },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
-  },
-  resultInfo: { flex: 1, gap: 4 },
-  resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 14 },
-  resultSub: { color: Colors.textSecondary, fontSize: 12 },
-  genreRow: { flexDirection: 'row', gap: 5, marginTop: 2 },
-  genreTag: { backgroundColor: Colors.surfaceAlt, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  genreText: { color: Colors.muted, fontSize: 10 },
   emptyState: { alignItems: 'center', paddingVertical: 48, gap: 12 },
-  emptyText: { color: Colors.muted, fontSize: 14 },
+  emptyText: { color: Colors.muted, fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
 });

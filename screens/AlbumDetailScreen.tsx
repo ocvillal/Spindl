@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/colors';
-import { MOCK_ALBUMS, MOCK_USERS, MOCK_DIARY } from '../constants/mockData';
+import { Album, Track, MOCK_USERS, MOCK_DIARY } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
+import { getAlbumWithTracks } from '../services/spotify';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -19,11 +20,35 @@ export default function AlbumDetailScreen() {
   const route = useRoute<Route>();
   const { id } = route.params;
 
-  const album = MOCK_ALBUMS.find((a) => a.id === id) ?? MOCK_ALBUMS[0];
+  const [album, setAlbum] = useState<Album | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(true);
   const [liked, setLiked] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    getAlbumWithTracks(id)
+      .then(({ album, tracks }) => { setAlbum(album); setTracks(tracks); })
+      .catch((e) => console.error('[Album detail error]', e?.message ?? e))
+      .finally(() => setLoading(false));
+  }, [id]);
+
   const friendsListened = MOCK_USERS.slice(1, 4);
   const avgRating = 4.2;
   const myEntry = MOCK_DIARY.find((e) => e.album.id === id);
+
+  if (loading || !album) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator color={Colors.primary} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -116,21 +141,18 @@ export default function AlbumDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tracks</Text>
-          {Array.from({ length: Math.min(album.trackCount, 5) }).map((_, idx) => (
-            <View key={idx} style={styles.trackRow}>
-              <Text style={styles.trackNum}>{idx + 1}</Text>
-              <Text style={styles.trackName}>Track {idx + 1}</Text>
-              <Text style={styles.trackDuration}>3:{String((10 + idx * 7) % 60).padStart(2, '0')}</Text>
-            </View>
-          ))}
-          {album.trackCount > 5 && (
-            <TouchableOpacity style={styles.showMoreBtn}>
-              <Text style={styles.showMoreText}>Show all {album.trackCount} tracks</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        {tracks.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tracks</Text>
+            {tracks.map((track, idx) => (
+              <View key={track.id} style={styles.trackRow}>
+                <Text style={styles.trackNum}>{idx + 1}</Text>
+                <Text style={styles.trackName} numberOfLines={1}>{track.title}</Text>
+                <Text style={styles.trackDuration}>{track.duration}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { Text, StyleSheet, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Album } from '@/constants/mockData';
-import { Colors } from '@/constants/colors';
 
 interface Props {
   album: Album;
@@ -11,6 +10,16 @@ interface Props {
 }
 
 export default function AlbumCover({ album, size = 56, borderRadius = 8 }: Props) {
+  if (album.cover && album.cover.startsWith('http')) {
+    return (
+      <Image
+        source={{ uri: album.cover }}
+        style={{ width: size, height: size, borderRadius }}
+        resizeMode="cover"
+      />
+    );
+  }
+
   return (
     <LinearGradient
       colors={album.coverGradient}
