@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Spindl",
+    "slug": "spindl",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0E0C15"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.spindl.app"
+    },
+    "android": {
+      "package": "com.spindl.app"
+    }
+  }
+}
