@@ -143,19 +143,26 @@ export default function SearchScreen() {
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Albums</Text>}
                     {results.albums.map((album) => (
-                      <TouchableOpacity
-                        key={album.id}
-                        style={styles.resultRow}
-                        onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                        activeOpacity={0.75}
-                      >
-                        <AlbumCover album={album} size={50} borderRadius={8} />
-                        <View style={styles.resultInfo}>
-                          <Text style={styles.resultTitle} numberOfLines={1}>{album.title}</Text>
-                          <Text style={styles.resultSub} numberOfLines={1}>{album.artist} · {album.year}</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={18} color={Colors.muted} />
-                      </TouchableOpacity>
+                      <View key={album.id} style={styles.resultRow}>
+                        <TouchableOpacity
+                          style={styles.resultRowMain}
+                          onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
+                          activeOpacity={0.75}
+                        >
+                          <AlbumCover album={album} size={50} borderRadius={8} />
+                          <View style={styles.resultInfo}>
+                            <Text style={styles.resultTitle} numberOfLines={1}>{album.title}</Text>
+                            <Text style={styles.resultSub} numberOfLines={1}>{album.artist} · {album.year}</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color={Colors.muted} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.logBtn}
+                          onPress={() => navigation.navigate('Log', { album })}
+                        >
+                          <Ionicons name="add" size={18} color={Colors.primary} />
+                        </TouchableOpacity>
+                      </View>
                     ))}
                   </View>
                 )}
@@ -165,19 +172,26 @@ export default function SearchScreen() {
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Songs</Text>}
                     {results.tracks.map((track) => (
-                      <TouchableOpacity
-                        key={track.id}
-                        style={styles.resultRow}
-                        onPress={() => navigation.navigate('AlbumDetail', { id: track.album.id })}
-                        activeOpacity={0.75}
-                      >
-                        <AlbumCover album={track.album} size={50} borderRadius={8} />
-                        <View style={styles.resultInfo}>
-                          <Text style={styles.resultTitle} numberOfLines={1}>{track.title}</Text>
-                          <Text style={styles.resultSub} numberOfLines={1}>{track.artist}</Text>
-                        </View>
-                        <Text style={styles.duration}>{track.duration}</Text>
-                      </TouchableOpacity>
+                      <View key={track.id} style={styles.resultRow}>
+                        <TouchableOpacity
+                          style={styles.resultRowMain}
+                          onPress={() => navigation.navigate('AlbumDetail', { id: track.album.id })}
+                          activeOpacity={0.75}
+                        >
+                          <AlbumCover album={track.album} size={50} borderRadius={8} />
+                          <View style={styles.resultInfo}>
+                            <Text style={styles.resultTitle} numberOfLines={1}>{track.title}</Text>
+                            <Text style={styles.resultSub} numberOfLines={1}>{track.artist}</Text>
+                          </View>
+                          <Text style={styles.duration}>{track.duration}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.logBtn}
+                          onPress={() => navigation.navigate('Log', { track })}
+                        >
+                          <Ionicons name="add" size={18} color={Colors.primary} />
+                        </TouchableOpacity>
+                      </View>
                     ))}
                   </View>
                 )}
@@ -275,8 +289,14 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
   sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 10 },
   resultRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface, borderRadius: 14, padding: 12, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 14, marginBottom: 8, overflow: 'hidden',
+  },
+  resultRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
+  logBtn: {
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderLeftWidth: 1, borderLeftColor: Colors.border,
+    justifyContent: 'center', alignItems: 'center',
   },
   resultInfo: { flex: 1, gap: 3 },
   resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 14 },

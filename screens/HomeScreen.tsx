@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,19 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import {
-  MOCK_ALBUMS,
   MOCK_USERS,
-  MOCK_SONGS,
   MOCK_ALBUM_REVIEWS,
   MOCK_SONG_REVIEWS,
-  TRENDING_ALBUMS,
+  Album,
+  Track,
   AlbumReview,
   SongReview,
 } from '../constants/mockData';
+
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
+import { getNewReleases, getTopTracks } from '../services/spotify';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -39,7 +40,14 @@ const TABS: { key: Exclude<HomeTab, null>; label: string }[] = [
 export default function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const [activeTab, setActiveTab] = useState<HomeTab>(null);
+  const [trendingAlbums, setTrendingAlbums] = useState<Album[]>([]);
+  const [topTracks, setTopTracks] = useState<Track[]>([]);
   const me = MOCK_USERS[0];
+
+  useEffect(() => {
+    getNewReleases(10).then(setTrendingAlbums).catch((e) => console.error('[HomeScreen] getNewReleases error:', e?.message ?? e));
+    getTopTracks(10).then(setTopTracks).catch((e) => console.error('[HomeScreen] getTopTracks error:', e?.message ?? e));
+  }, []);
 
   const toggleTab = (tab: Exclude<HomeTab, null>) =>
     setActiveTab((prev) => (prev === tab ? null : tab));
@@ -77,7 +85,7 @@ export default function HomeScreen() {
           onPress={() => navigation.navigate('Log')}
           activeOpacity={0.85}
         >
-          <AlbumCover album={MOCK_ALBUMS[0]} size={40} borderRadius={10} />
+          {trendingAlbums[0] && <AlbumCover album={trendingAlbums[0]} size={40} borderRadius={10} />}
           <Text style={styles.logCtaText}>What did you listen to?</Text>
           <View style={styles.logCtaBtn}>
             <Ionicons name="add" size={20} color={Colors.background} />
@@ -116,38 +124,22 @@ export default function HomeScreen() {
             </View>
 
             {activeTab === null ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.hScroll}
-              >
-                {TRENDING_ALBUMS.map((album) => (
-                  <TouchableOpacity
-                    key={album.id}
-                    style={styles.albumCard}
-                    onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                    activeOpacity={0.8}
-                  >
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
+                {trendingAlbums.map((album) => (
+                  <TouchableOpacity key={album.id} style={styles.albumCard} onPress={() => navigation.navigate('AlbumDetail', { id: album.id })} activeOpacity={0.8}>
                     <AlbumCover album={album} size={130} borderRadius={14} />
                     <Text style={styles.albumCardTitle} numberOfLines={1}>{album.title}</Text>
                     <Text style={styles.albumCardArtist} numberOfLines={1}>{album.artist}</Text>
-                    <StarRating rating={4.2} size={11} />
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             ) : (
               <View style={styles.albumsGrid}>
-                {MOCK_ALBUMS.map((album) => (
-                  <TouchableOpacity
-                    key={album.id}
-                    style={styles.albumGridItem}
-                    onPress={() => navigation.navigate('AlbumDetail', { id: album.id })}
-                    activeOpacity={0.8}
-                  >
+                {trendingAlbums.map((album) => (
+                  <TouchableOpacity key={album.id} style={styles.albumGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: album.id })} activeOpacity={0.8}>
                     <AlbumCover album={album} size={160} borderRadius={14} />
                     <Text style={styles.albumCardTitle} numberOfLines={1}>{album.title}</Text>
                     <Text style={styles.albumCardArtist} numberOfLines={1}>{album.artist}</Text>
-                    <StarRating rating={4.2} size={11} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -167,24 +159,21 @@ export default function HomeScreen() {
               )}
             </View>
             <View style={styles.songsCard}>
-              {(activeTab === null ? MOCK_SONGS.slice(0, 5) : MOCK_SONGS).map((track, idx) => (
-                <View
+              {(activeTab === null ? topTracks.slice(0, 5) : topTracks).map((track, idx) => (
+                <TouchableOpacity
                   key={track.id}
                   style={[styles.songRow, idx > 0 && styles.songRowBorder]}
+                  onPress={() => navigation.navigate('Log', { track })}
+                  activeOpacity={0.75}
                 >
-                  <Text style={[styles.songRank, idx < 3 && styles.songRankTop]}>
-                    {idx + 1}
-                  </Text>
+                  <Text style={[styles.songRank, idx < 3 && styles.songRankTop]}>{idx + 1}</Text>
                   <AlbumCover album={track.album} size={44} borderRadius={8} />
                   <View style={styles.songInfo}>
                     <Text style={styles.songTitle} numberOfLines={1}>{track.title}</Text>
                     <Text style={styles.songArtist} numberOfLines={1}>{track.artist}</Text>
                   </View>
-                  <View style={styles.songMeta}>
-                    <Text style={styles.songPlays}>{track.playsCount}</Text>
-                    <Text style={styles.songDuration}>{track.duration}</Text>
-                  </View>
-                </View>
+                  <Text style={styles.songDuration}>{track.duration}</Text>
+                </TouchableOpacity>
               ))}
             </View>
           </View>

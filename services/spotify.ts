@@ -176,8 +176,34 @@ export async function getAlbumWithTracks(albumId: string): Promise<{ album: Albu
   return { album, tracks };
 }
 
-/** Fetch Spotify's new releases (useful for a "trending" section). */
+/** Fetch recently released albums via search (browse endpoint restricted for new apps). */
 export async function getNewReleases(limit = 10): Promise<Album[]> {
-  const data = await spotifyFetch(`/browse/new-releases?limit=${limit}`);
-  return data.albums.items.map(mapSpotifyAlbum);
+  const data = await spotifyFetch(`/search?q=pop&type=album&market=US&limit=${limit}`);
+  return (data.albums?.items ?? []).map(mapSpotifyAlbum);
+}
+
+/** Fetch popular current tracks via search (playlist endpoint restricted for new apps). */
+export async function getTopTracks(limit = 10): Promise<Track[]> {
+  const data = await spotifyFetch(`/search?q=pop&type=track&market=US&limit=${limit}`);
+  return (data.tracks?.items ?? []).map((t: any) => {
+    const albumStub: Album = {
+      id: t.album?.id ?? '',
+      title: t.album?.name ?? '',
+      artist: (t.album?.artists ?? []).map((a: any) => a.name).join(', '),
+      year: parseInt(t.album?.release_date?.split('-')[0] ?? '0', 10),
+      genre: [],
+      cover: t.album?.images?.[0]?.url ?? '',
+      coverGradient: ['#1a1a2e', '#16213e'],
+      trackCount: t.album?.total_tracks ?? 0,
+      duration: '',
+    };
+    return {
+      id: t.id,
+      title: t.name,
+      artist: (t.artists ?? []).map((a: any) => a.name).join(', '),
+      album: albumStub,
+      duration: formatDuration(t.duration_ms),
+      playsCount: '',
+    };
+  });
 }

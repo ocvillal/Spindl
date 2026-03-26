@@ -1,80 +1,195 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, SafeAreaView } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  TextInput, SafeAreaView, ActivityIndicator,
+} from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { RootStackParamList } from '../App';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
-import { MOCK_ALBUMS } from '../constants/mockData';
+import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
+import { searchAll } from '../services/spotify';
+import { useRatings } from '../store/ratings';
+
+type Mode = 'album' | 'song';
 
 export default function LogScreen() {
   const navigation = useNavigation();
-  const [selectedAlbum, setSelectedAlbum] = useState(MOCK_ALBUMS[0]);
+  const route = useRoute<RouteProp<RootStackParamList, 'Log'>>();
+  const { logAlbum, logSong } = useRatings();
+
+  const preAlbum = route.params?.album;
+  const preTrack = route.params?.track;
+
+  const [mode, setMode] = useState<Mode>(preTrack ? 'song' : 'album');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ albums: Album[]; tracks: Track[] }>({ albums: [], tracks: [] });
+  const [searching, setSearching] = useState(false);
+
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(preAlbum ?? null);
+  const [selectedTrack, setSelectedTrack] = useState<Track | null>(preTrack ?? null);
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [liked, setLiked] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
 
-  const filtered = searchQuery.length > 1
-    ? MOCK_ALBUMS.filter((a) =>
-        a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.artist.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : [];
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isInitialMount = useRef(true);
+
+  // Reset selection when mode changes (but not on initial mount)
+  useEffect(() => {
+    if (isInitialMount.current) { isInitialMount.current = false; return; }
+    setSearchQuery('');
+    setSearchResults({ albums: [], tracks: [] });
+    setSelectedAlbum(null);
+    setSelectedTrack(null);
+    setRating(0);
+    setReview('');
+    setLiked(false);
+  }, [mode]);
+
+  // Debounced Spotify search
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (searchQuery.length < 2) { setSearchResults({ albums: [], tracks: [] }); return; }
+    setSearching(true);
+    debounceRef.current = setTimeout(() => {
+      searchAll(searchQuery)
+        .then((r) => setSearchResults({ albums: r.albums, tracks: r.tracks }))
+        .catch(() => setSearchResults({ albums: [], tracks: [] }))
+        .finally(() => setSearching(false));
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [searchQuery]);
+
+  const hasSelection = mode === 'album' ? !!selectedAlbum : !!selectedTrack;
+  const canSave = hasSelection && rating > 0;
+
+  function handleSave() {
+    if (mode === 'album' && selectedAlbum) {
+      logAlbum(selectedAlbum, rating, review, liked);
+    } else if (mode === 'song' && selectedTrack) {
+      logSong(selectedTrack, rating, review, liked);
+    }
+    navigation.goBack();
+  }
+
+  const results = mode === 'album' ? searchResults.albums : searchResults.tracks;
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* ── Nav bar ── */}
       <View style={styles.nav}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navClose}>
           <Ionicons name="close" size={22} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>Log Album</Text>
-        <TouchableOpacity
-          style={[styles.saveBtn, rating === 0 && styles.saveBtnDisabled]}
-          disabled={rating === 0}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={[styles.saveBtnText, rating === 0 && styles.saveBtnTextDisabled]}>Save</Text>
+        <Text style={styles.navTitle}>Log {mode === 'album' ? 'Album' : 'Song'}</Text>
+        <TouchableOpacity style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]} disabled={!canSave} onPress={handleSave}>
+          <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>Save</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+        {/* ── Mode toggle ── */}
+        <View style={styles.modeToggle}>
+          {(['album', 'song'] as Mode[]).map((m) => (
+            <TouchableOpacity
+              key={m}
+              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
+              onPress={() => setMode(m)}
+            >
+              <Ionicons
+                name={m === 'album' ? 'disc-outline' : 'musical-note-outline'}
+                size={16}
+                color={mode === m ? Colors.primary : Colors.muted}
+              />
+              <Text style={[styles.modeBtnText, mode === m && styles.modeBtnTextActive]}>
+                {m === 'album' ? 'Album' : 'Song'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Search ── */}
         <View style={styles.section}>
-          <Text style={styles.label}>Album</Text>
+          <Text style={styles.label}>{mode === 'album' ? 'Album' : 'Song'}</Text>
           <View style={styles.searchBar}>
             <Ionicons name="search" size={16} color={Colors.muted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search albums..."
+              placeholder={mode === 'album' ? 'Search albums...' : 'Search songs...'}
               placeholderTextColor={Colors.muted}
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
+            {searching && <ActivityIndicator size="small" color={Colors.muted} />}
           </View>
-          {filtered.length > 0 && (
+
+          {results.length > 0 && (
             <View style={styles.searchResults}>
-              {filtered.slice(0, 3).map((album) => (
-                <TouchableOpacity key={album.id} style={styles.searchResultRow} onPress={() => { setSelectedAlbum(album); setSearchQuery(''); }}>
-                  <AlbumCover album={album} size={40} />
-                  <View>
-                    <Text style={styles.resultTitle}>{album.title}</Text>
-                    <Text style={styles.resultArtist}>{album.artist}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {results.slice(0, 5).map((item) => {
+                const isAlbum = mode === 'album';
+                const album = isAlbum ? (item as Album) : (item as Track).album;
+                const title = isAlbum ? (item as Album).title : (item as Track).title;
+                const sub = isAlbum ? (item as Album).artist : (item as Track).artist;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.searchResultRow}
+                    onPress={() => {
+                      if (isAlbum) { setSelectedAlbum(item as Album); }
+                      else { setSelectedTrack(item as Track); }
+                      setSearchQuery('');
+                      setSearchResults({ albums: [], tracks: [] });
+                    }}
+                  >
+                    <AlbumCover album={album} size={40} borderRadius={6} />
+                    <View style={styles.resultText}>
+                      <Text style={styles.resultTitle} numberOfLines={1}>{title}</Text>
+                      <Text style={styles.resultArtist} numberOfLines={1}>{sub}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>
 
-        <View style={styles.selectedAlbum}>
-          <AlbumCover album={selectedAlbum} size={72} borderRadius={12} />
-          <View>
-            <Text style={styles.selectedTitle}>{selectedAlbum.title}</Text>
-            <Text style={styles.selectedArtist}>{selectedAlbum.artist}</Text>
-            <Text style={styles.selectedMeta}>{selectedAlbum.year}</Text>
+        {/* ── Selected item ── */}
+        {hasSelection && (
+          <View style={styles.selectedCard}>
+            <AlbumCover
+              album={mode === 'album' ? selectedAlbum! : selectedTrack!.album}
+              size={72}
+              borderRadius={12}
+            />
+            <View style={styles.selectedInfo}>
+              <Text style={styles.selectedTitle} numberOfLines={1}>
+                {mode === 'album' ? selectedAlbum!.title : selectedTrack!.title}
+              </Text>
+              <Text style={styles.selectedArtist} numberOfLines={1}>
+                {mode === 'album' ? selectedAlbum!.artist : selectedTrack!.artist}
+              </Text>
+              {mode === 'song' && selectedTrack && (
+                <Text style={styles.selectedMeta} numberOfLines={1}>{selectedTrack.album.title}</Text>
+              )}
+              {mode === 'album' && selectedAlbum && (
+                <Text style={styles.selectedMeta}>{selectedAlbum.year}</Text>
+              )}
+            </View>
+            <TouchableOpacity
+              onPress={() => { mode === 'album' ? setSelectedAlbum(null) : setSelectedTrack(null); setRating(0); }}
+              hitSlop={8}
+            >
+              <Ionicons name="close-circle" size={20} color={Colors.muted} />
+            </TouchableOpacity>
           </View>
-        </View>
+        )}
 
+        {/* ── Rating ── */}
         <View style={styles.section}>
           <Text style={styles.label}>Rating</Text>
           <View style={styles.ratingRow}>
@@ -84,6 +199,7 @@ export default function LogScreen() {
           {rating === 0 && <Text style={styles.ratingHint}>Tap a star to rate</Text>}
         </View>
 
+        {/* ── Liked ── */}
         <View style={styles.section}>
           <TouchableOpacity style={[styles.likeToggle, liked && styles.likeToggleActive]} onPress={() => setLiked(!liked)}>
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? Colors.primary : Colors.muted} />
@@ -91,6 +207,7 @@ export default function LogScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* ── Review ── */}
         <View style={styles.section}>
           <Text style={styles.label}>Review <Text style={styles.optional}>(optional)</Text></Text>
           <TextInput
@@ -102,28 +219,9 @@ export default function LogScreen() {
             multiline
             numberOfLines={5}
             textAlignVertical="top"
+            maxLength={500}
           />
           <Text style={styles.charCount}>{review.length} / 500</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Date Listened</Text>
-          <TouchableOpacity style={styles.datePicker}>
-            <Ionicons name="calendar-outline" size={18} color={Colors.muted} />
-            <Text style={styles.dateText}>Today, March 24</Text>
-            <Ionicons name="chevron-down" size={16} color={Colors.muted} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Recommend to a friend</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendChips}>
-            {['Sofia M.', 'Marcus T.', 'Priya K.', 'Jordan L.'].map((name) => (
-              <TouchableOpacity key={name} style={styles.friendChip}>
-                <Text style={styles.friendChipText}>{name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -141,19 +239,31 @@ const styles = StyleSheet.create({
   saveBtnTextDisabled: { color: Colors.muted },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 16 },
+
+  modeToggle: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 14, padding: 4, marginBottom: 24, borderWidth: 1, borderColor: Colors.border },
+  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },
+  modeBtnActive: { backgroundColor: Colors.primaryDim },
+  modeBtnText: { color: Colors.muted, fontSize: 14, fontWeight: '600' },
+  modeBtnTextActive: { color: Colors.primary },
+
   section: { marginBottom: 24 },
   label: { color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 10 },
   optional: { color: Colors.muted, fontWeight: '400' },
+
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderWidth: 1, borderColor: Colors.border },
   searchInput: { flex: 1, color: Colors.text, fontSize: 14 },
-  searchResults: { backgroundColor: Colors.surface, borderRadius: 12, marginTop: 4, overflow: 'hidden' },
+  searchResults: { backgroundColor: Colors.surface, borderRadius: 12, marginTop: 4, overflow: 'hidden', borderWidth: 1, borderColor: Colors.border },
   searchResultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  resultText: { flex: 1 },
   resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 13 },
-  resultArtist: { color: Colors.muted, fontSize: 12 },
-  selectedAlbum: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: Colors.primary + '40' },
+  resultArtist: { color: Colors.muted, fontSize: 12, marginTop: 1 },
+
+  selectedCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: Colors.primary + '40' },
+  selectedInfo: { flex: 1 },
   selectedTitle: { color: Colors.text, fontWeight: '700', fontSize: 16 },
   selectedArtist: { color: Colors.textSecondary, fontSize: 13, marginTop: 2 },
   selectedMeta: { color: Colors.muted, fontSize: 12, marginTop: 2 },
+
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   ratingLabel: { color: Colors.accent, fontSize: 16, fontWeight: '700' },
   ratingHint: { color: Colors.muted, fontSize: 12, marginTop: 6 },
@@ -163,9 +273,4 @@ const styles = StyleSheet.create({
   likeTextActive: { color: Colors.primary, fontWeight: '700' },
   reviewInput: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, color: Colors.text, fontSize: 14, lineHeight: 21, minHeight: 120, borderWidth: 1, borderColor: Colors.border },
   charCount: { color: Colors.muted, fontSize: 12, textAlign: 'right', marginTop: 6 },
-  datePicker: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border },
-  dateText: { flex: 1, color: Colors.text, fontSize: 14 },
-  friendChips: { gap: 8 },
-  friendChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
-  friendChipText: { color: Colors.textSecondary, fontSize: 13 },
 });

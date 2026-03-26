@@ -5,11 +5,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/colors';
-import { Album, Track, MOCK_USERS, MOCK_DIARY } from '../constants/mockData';
+import { Album, Track, MOCK_USERS } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
 import { getAlbumWithTracks } from '../services/spotify';
+import { useRatings } from '../store/ratings';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -33,9 +34,10 @@ export default function AlbumDetailScreen() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const { getAlbumEntry } = useRatings();
+  const myEntry = getAlbumEntry(id);
   const friendsListened = MOCK_USERS.slice(1, 4);
   const avgRating = 4.2;
-  const myEntry = MOCK_DIARY.find((e) => e.album.id === id);
 
   if (loading || !album) {
     return (
@@ -92,7 +94,7 @@ export default function AlbumDetailScreen() {
         </View>
 
         <View style={styles.ctaRow}>
-          <TouchableOpacity style={styles.logBtn} onPress={() => navigation.navigate('Log')}>
+          <TouchableOpacity style={styles.logBtn} onPress={() => navigation.navigate('Log', { album })}>
             <Ionicons name="add-circle-outline" size={20} color="#fff" />
             <Text style={styles.logBtnText}>{myEntry ? 'Update Log' : 'Log Album'}</Text>
           </TouchableOpacity>

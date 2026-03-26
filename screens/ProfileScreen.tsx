@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/colors';
-import { MOCK_USERS, MOCK_DIARY, MOCK_ALBUMS } from '../constants/mockData';
-import Avatar from '../components/Avatar';
+import { MOCK_ALBUMS } from '../constants/mockData';
+import { useRatings, AlbumEntry, SongEntry } from '../store/ratings';
+import { useProfile } from '../store/profile';
+import { useAuth } from '../store/auth';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
 import { RootStackParamList } from '../App';
@@ -14,11 +16,41 @@ import { RootStackParamList } from '../App';
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type ProfileTab = 'diary' | 'reviews' | 'lists' | 'favorites';
 
+function ProfileAvatar({ name, size }: { name: string; size: number }) {
+  const initials = name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: Colors.accent, justifyContent: 'center', alignItems: 'center' }}>
+      <Text style={{ color: '#fff', fontSize: size * 0.38, fontWeight: '700' }}>{initials}</Text>
+    </View>
+  );
+}
+
 export default function ProfileScreen() {
   const navigation = useNavigation<Nav>();
+  const { signOut } = useAuth();
+  const { profile } = useProfile();
   const [activeTab, setActiveTab] = useState<ProfileTab>('diary');
-  const me = MOCK_USERS[0];
-  const favAlbums = MOCK_DIARY.filter((e) => e.liked).slice(0, 4);
+  const { entries } = useRatings();
+  const albumEntries = entries.filter((e): e is AlbumEntry => e.type === 'album');
+  const songEntries = entries.filter((e): e is SongEntry => e.type === 'song');
+  const favAlbums = albumEntries.filter((e) => e.liked).slice(0, 4);
+
+  const displayName = profile?.name ?? 'Music Lover';
+  const username = profile?.username ?? '';
+  const genres = profile?.genres ?? [];
+  const tasteLine = genres.slice(0, 3).join(' · ');
+
+  function confirmSignOut() {
+    Alert.alert('Sign Out', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: signOut },
+    ]);
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -27,26 +59,23 @@ export default function ProfileScreen() {
           <LinearGradient colors={['#3B2A5C', Colors.background]} style={styles.headerGradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
           <View style={styles.topRow}>
             <View />
-            <TouchableOpacity style={styles.settingsBtn}>
-              <Ionicons name="settings-outline" size={22} color={Colors.text} />
+            <TouchableOpacity style={styles.settingsBtn} onPress={confirmSignOut}>
+              <Ionicons name="log-out-outline" size={22} color={Colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.avatarSection}>
             <View style={styles.avatarWrap}>
-              <Avatar user={me} size={80} />
-              <TouchableOpacity style={styles.editAvatarBtn}>
-                <Ionicons name="camera" size={14} color="#fff" />
-              </TouchableOpacity>
+              <ProfileAvatar name={displayName} size={80} />
             </View>
-            <Text style={styles.displayName}>{me.name}</Text>
-            <Text style={styles.username}>@{me.username}</Text>
-            <Text style={styles.bio}>{me.bio}</Text>
+            <Text style={styles.displayName}>{displayName}</Text>
+            {username ? <Text style={styles.username}>@{username}</Text> : null}
+            {tasteLine ? <Text style={styles.bio}>{tasteLine}</Text> : null}
           </View>
           <View style={styles.statsRow}>
             {[
-              { label: 'Albums', value: me.albumsLogged },
-              { label: 'Followers', value: me.followersCount },
-              { label: 'Following', value: me.followingCount },
+              { label: 'Albums', value: albumEntries.length },
+              { label: 'Songs', value: songEntries.length },
+              { label: 'Genres', value: genres.length },
             ].map((stat, idx) => (
               <TouchableOpacity key={stat.label} style={styles.statItem}>
                 <Text style={styles.statValue}>{stat.value}</Text>
@@ -82,37 +111,90 @@ export default function ProfileScreen() {
         </ScrollView>
 
         {activeTab === 'diary' && (
-          <View style={styles.diaryGrid}>
-            {MOCK_DIARY.map((entry) => (
-              <TouchableOpacity key={entry.id} style={styles.diaryGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: entry.album.id })} activeOpacity={0.8}>
-                <View style={styles.gridCoverWrap}>
-                  <AlbumCover album={entry.album} size={100} borderRadius={10} />
-                  <View style={styles.ratingBadge}>
-                    <Text style={styles.ratingBadgeText}>{entry.rating}</Text>
+          entries.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="musical-notes-outline" size={40} color={Colors.muted} />
+              <Text style={styles.emptyText}>Nothing logged yet</Text>
+              <Text style={styles.emptyHint}>Tap + on the home screen to log an album or song</Text>
+            </View>
+          ) : (
+            <>
+              {albumEntries.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Albums</Text>
+                  <View style={styles.diaryGrid}>
+                    {albumEntries.map((entry) => (
+                      <TouchableOpacity key={entry.id} style={styles.diaryGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: entry.album.id })} activeOpacity={0.8}>
+                        <View style={styles.gridCoverWrap}>
+                          <AlbumCover album={entry.album} size={100} borderRadius={10} />
+                          <View style={styles.ratingBadge}>
+                            <Text style={styles.ratingBadgeText}>{entry.rating}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.diaryItemTitle} numberOfLines={1}>{entry.album.title}</Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
                 </View>
-                <Text style={styles.diaryItemTitle} numberOfLines={1}>{entry.album.title}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+              )}
+              {songEntries.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Songs</Text>
+                  <View style={styles.diaryGrid}>
+                    {songEntries.map((entry) => (
+                      <TouchableOpacity key={entry.id} style={styles.diaryGridItem} activeOpacity={0.8}>
+                        <View style={styles.gridCoverWrap}>
+                          <AlbumCover album={entry.track.album} size={100} borderRadius={10} />
+                          <View style={styles.ratingBadge}>
+                            <Text style={styles.ratingBadgeText}>{entry.rating}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.diaryItemTitle} numberOfLines={1}>{entry.track.title}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </>
+          )
         )}
 
         {activeTab === 'reviews' && (
-          <View style={styles.reviewsList}>
-            {MOCK_DIARY.filter((e) => e.review).map((entry) => (
-              <TouchableOpacity key={entry.id} style={styles.reviewRow} onPress={() => navigation.navigate('AlbumDetail', { id: entry.album.id })} activeOpacity={0.8}>
-                <AlbumCover album={entry.album} size={50} />
-                <View style={styles.reviewContent}>
-                  <View style={styles.reviewHeader}>
-                    <Text style={styles.reviewTitle}>{entry.album.title}</Text>
-                    <StarRating rating={entry.rating} size={12} />
-                  </View>
-                  <Text style={styles.reviewText} numberOfLines={2}>{entry.review}</Text>
-                  <Text style={styles.reviewDate}>{entry.date}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+          entries.filter((e) => e.review).length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="create-outline" size={40} color={Colors.muted} />
+              <Text style={styles.emptyText}>No reviews yet</Text>
+            </View>
+          ) : (
+            <View style={styles.reviewsList}>
+              {entries.filter((e) => e.review).map((entry) => {
+                const isAlbum = entry.type === 'album';
+                const album = isAlbum ? (entry as AlbumEntry).album : (entry as SongEntry).track.album;
+                const title = isAlbum ? (entry as AlbumEntry).album.title : (entry as SongEntry).track.title;
+                return (
+                  <TouchableOpacity
+                    key={entry.id}
+                    style={styles.reviewRow}
+                    onPress={() => isAlbum ? navigation.navigate('AlbumDetail', { id: album.id }) : undefined}
+                    activeOpacity={0.8}
+                  >
+                    <AlbumCover album={album} size={50} borderRadius={8} />
+                    <View style={styles.reviewContent}>
+                      <View style={styles.reviewHeader}>
+                        <View style={styles.reviewTitleRow}>
+                          <Text style={styles.reviewTitle} numberOfLines={1}>{title}</Text>
+                          {!isAlbum && <View style={styles.songBadge}><Text style={styles.songBadgeText}>song</Text></View>}
+                        </View>
+                        <StarRating rating={entry.rating} size={12} />
+                      </View>
+                      <Text style={styles.reviewText} numberOfLines={2}>{entry.review}</Text>
+                      <Text style={styles.reviewDate}>{entry.date}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )
         )}
 
         {activeTab === 'lists' && (
@@ -146,14 +228,27 @@ export default function ProfileScreen() {
         )}
 
         {activeTab === 'favorites' && (
-          <View style={styles.diaryGrid}>
-            {MOCK_DIARY.filter((e) => e.liked).map((entry) => (
-              <TouchableOpacity key={entry.id} style={styles.diaryGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: entry.album.id })} activeOpacity={0.8}>
-                <AlbumCover album={entry.album} size={100} borderRadius={10} />
-                <Text style={styles.diaryItemTitle} numberOfLines={1}>{entry.album.title}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          entries.filter((e) => e.liked).length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="heart-outline" size={40} color={Colors.muted} />
+              <Text style={styles.emptyText}>No favorites yet</Text>
+              <Text style={styles.emptyHint}>Heart an album or song when logging it</Text>
+            </View>
+          ) : (
+            <View style={styles.diaryGrid}>
+              {entries.filter((e) => e.liked).map((entry) => {
+                const isAlbum = entry.type === 'album';
+                const album = isAlbum ? (entry as AlbumEntry).album : (entry as SongEntry).track.album;
+                const title = isAlbum ? (entry as AlbumEntry).album.title : (entry as SongEntry).track.title;
+                return (
+                  <TouchableOpacity key={entry.id} style={styles.diaryGridItem} onPress={() => isAlbum ? navigation.navigate('AlbumDetail', { id: album.id }) : undefined} activeOpacity={0.8}>
+                    <AlbumCover album={album} size={100} borderRadius={10} />
+                    <Text style={styles.diaryItemTitle} numberOfLines={1}>{title}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )
         )}
       </ScrollView>
     </SafeAreaView>
@@ -198,9 +293,15 @@ const styles = StyleSheet.create({
   reviewRow: { flexDirection: 'row', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, padding: 12 },
   reviewContent: { flex: 1, gap: 4 },
   reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  reviewTitle: { color: Colors.text, fontWeight: '600', fontSize: 13, flex: 1 },
+  reviewTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  reviewTitle: { color: Colors.text, fontWeight: '600', fontSize: 13, flexShrink: 1 },
+  songBadge: { backgroundColor: Colors.primaryDim, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  songBadgeText: { color: Colors.primary, fontSize: 10, fontWeight: '600' },
   reviewText: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17, fontStyle: 'italic' },
   reviewDate: { color: Colors.muted, fontSize: 11 },
+  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 8, paddingHorizontal: 32 },
+  emptyText: { color: Colors.muted, fontSize: 15, fontWeight: '600' },
+  emptyHint: { color: Colors.muted, fontSize: 13, textAlign: 'center', opacity: 0.7 },
   listsSection: { paddingHorizontal: 16, gap: 8 },
   listRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, padding: 12, gap: 12 },
   listCoverStrip: { width: 80, height: 44, position: 'relative' },

@@ -1,31 +1,31 @@
 export const Colors = {
   // Backgrounds
-  background: '#0E0C15',
-  surface: '#1A1726',
-  surfaceAlt: '#231F33',
-  surfaceHigh: '#2C2840',
+  background: '#F0EAD2',    // vanilla cream — main background
+  surface: '#E6DEC4',       // slightly deeper vanilla cream for cards
+  surfaceAlt: '#DAD3B5',    // deeper for nested surfaces
+  surfaceHigh: '#DDE5B6',   // ~cream (olive-tinted) for highlights
 
   // Brand
-  primary: '#E8547A',       // warm rose
-  primaryDim: '#E8547A33',
-  accent: '#F5A623',        // amber gold
-  accentDim: '#F5A62333',
+  primary: '#ADC178',       // muted olive — buttons, links, active states
+  primaryDim: '#ADC17830',
+  accent: '#A98467',        // faded copper — secondary accent
+  accentDim: '#A9846730',
 
   // Text
-  text: '#F0EDF8',
-  textSecondary: '#A09BB8',
-  muted: '#6B6789',
+  text: '#6C584C',          // ash brown — main text
+  textSecondary: '#A98467', // faded copper — secondary text
+  muted: '#B5A882',         // muted warm beige-brown
 
   // UI
-  border: '#2C2840',
-  divider: '#1E1B2E',
+  border: '#D6CEB2',        // warm beige border
+  divider: '#DDD7C0',       // soft warm divider
 
   // Ratings
-  star: '#F5A623',
-  starEmpty: '#2C2840',
+  star: '#ADC178',          // muted olive
+  starEmpty: '#D6CEB2',
 
   // Status
-  online: '#4ADE80',
+  online: '#ADC178',
 };
 
 export type ColorKey = keyof typeof Colors;

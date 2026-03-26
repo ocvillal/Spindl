@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -7,18 +7,27 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from './constants/colors';
 
+import { AuthProvider, useAuth } from './store/auth';
+import { ProfileProvider, useProfile } from './store/profile';
+import { RatingsProvider } from './store/ratings';
+
 import HomeScreen from './screens/HomeScreen';
 import SearchScreen from './screens/SearchScreen';
-import DiaryScreen from './screens/DiaryScreen';
+import DiscoverScreen from './screens/DiscoverScreen';
+import CollectionScreen from './screens/CollectionScreen';
 import FriendsScreen from './screens/FriendsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import AlbumDetailScreen from './screens/AlbumDetailScreen';
 import LogScreen from './screens/LogScreen';
+import AuthScreen from './screens/AuthScreen';
+import OnboardingScreen from './screens/onboarding/OnboardingScreen';
+
+import { Album, Track } from './constants/mockData';
 
 export type RootStackParamList = {
   MainTabs: undefined;
   AlbumDetail: { id: string };
-  Log: undefined;
+  Log: { album?: Album; track?: Track } | undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -44,76 +53,92 @@ function MainTabs() {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} />
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} /> }}
       />
       <Tab.Screen
         name="Search"
         component={SearchScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'search' : 'search-outline'} focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Discover"
+        component={DiscoverScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'search' : 'search-outline'} focused={focused} />
+            <View style={[styles.discoverBtn, focused && styles.discoverBtnActive]}>
+              <Ionicons name="play-circle" size={28} color={focused ? Colors.background : Colors.primary} />
+            </View>
           ),
         }}
       />
       <Tab.Screen
-        name="Diary"
-        component={DiaryScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'book' : 'book-outline'} focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Friends"
-        component={FriendsScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'people' : 'people-outline'} focused={focused} />
-          ),
-        }}
+        name="Collection"
+        component={CollectionScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'disc' : 'disc-outline'} focused={focused} /> }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'person' : 'person-outline'} focused={focused} />
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name={focused ? 'person' : 'person-outline'} focused={focused} /> }}
       />
     </Tab.Navigator>
   );
 }
 
+function MainStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: Colors.background },
+        animation: 'slide_from_right',
+      }}
+    >
+      <Stack.Screen name="MainTabs" component={MainTabs} />
+      <Stack.Screen name="AlbumDetail" component={AlbumDetailScreen} />
+      <Stack.Screen
+        name="Log"
+        component={LogScreen}
+        options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function RootNavigator() {
+  const { session, loading: authLoading } = useAuth();
+  const { profile, loading: profileLoading } = useProfile();
+
+  if (authLoading || profileLoading) {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator color={Colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (!session) return <AuthScreen />;
+  if (!profile || !profile.onboarded) return <OnboardingScreen />;
+  return <MainStack />;
+}
+
 export default function App() {
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.background },
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="MainTabs" component={MainTabs} />
-        <Stack.Screen name="AlbumDetail" component={AlbumDetailScreen} />
-        <Stack.Screen
-          name="Log"
-          component={LogScreen}
-          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <AuthProvider>
+      <ProfileProvider>
+        <RatingsProvider>
+          <NavigationContainer>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </NavigationContainer>
+        </RatingsProvider>
+      </ProfileProvider>
+    </AuthProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  splash: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
   tabBar: {
     backgroundColor: Colors.surface,
     borderTopWidth: 0,
@@ -123,13 +148,19 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   iconWrap: {
-    width: 44,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44, height: 36,
+    justifyContent: 'center', alignItems: 'center',
     borderRadius: 12,
   },
-  iconWrapActive: {
+  iconWrapActive: { backgroundColor: Colors.primaryDim },
+  discoverBtn: {
+    width: 52, height: 52, borderRadius: 26,
+    justifyContent: 'center', alignItems: 'center',
     backgroundColor: Colors.primaryDim,
+    borderWidth: 2, borderColor: Colors.primary,
+    marginBottom: 8,
+  },
+  discoverBtnActive: {
+    backgroundColor: Colors.primary,
   },
 });
