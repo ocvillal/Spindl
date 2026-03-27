@@ -1,34 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import {
-  MOCK_USERS,
-  MOCK_ALBUM_REVIEWS,
-  MOCK_SONG_REVIEWS,
-  Album,
-  Track,
-  AlbumReview,
-  SongReview,
+  MOCK_USERS, MOCK_ALBUM_REVIEWS, MOCK_SONG_REVIEWS,
+  Album, Track, AlbumReview, SongReview,
 } from '../constants/mockData';
-
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
-import { getNewReleases, getTopTracks } from '../services/spotify';
+import { getTrendingAlbums, getPopularTracks } from '../services/spotify';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type HomeTab = 'albums' | 'songs' | 'albumReviews' | 'songReviews' | null;
+type Period = 'week' | 'month' | 'year';
 
 const TABS: { key: Exclude<HomeTab, null>; label: string }[] = [
   { key: 'albums', label: 'Albums' },
@@ -37,17 +28,39 @@ const TABS: { key: Exclude<HomeTab, null>; label: string }[] = [
   { key: 'songReviews', label: 'Song Reviews' },
 ];
 
+const PERIODS: { key: Period; label: string }[] = [
+  { key: 'week', label: 'Week' },
+  { key: 'month', label: 'Month' },
+  { key: 'year', label: 'Year' },
+];
+
 export default function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const [activeTab, setActiveTab] = useState<HomeTab>(null);
+  const [period, setPeriod] = useState<Period>('week');
   const [trendingAlbums, setTrendingAlbums] = useState<Album[]>([]);
   const [topTracks, setTopTracks] = useState<Track[]>([]);
+  const [loadingCharts, setLoadingCharts] = useState(true);
   const me = MOCK_USERS[0];
 
   useEffect(() => {
-    getNewReleases(10).then(setTrendingAlbums).catch((e) => console.error('[HomeScreen] getNewReleases error:', e?.message ?? e));
-    getTopTracks(10).then(setTopTracks).catch((e) => console.error('[HomeScreen] getTopTracks error:', e?.message ?? e));
-  }, []);
+    loadCharts(period);
+  }, [period]);
+
+  async function loadCharts(p: Period) {
+    setLoadingCharts(true);
+    try {
+      const [albums, tracks] = await Promise.all([
+        getTrendingAlbums(10, p),
+        getPopularTracks(10, p),
+      ]);
+      setTrendingAlbums(albums);
+      setTopTracks(tracks);
+    } catch (e: any) {
+      console.error('[HomeScreen] chart load error:', e?.message ?? e);
+    }
+    setLoadingCharts(false);
+  }
 
   const toggleTab = (tab: Exclude<HomeTab, null>) =>
     setActiveTab((prev) => (prev === tab ? null : tab));
@@ -57,13 +70,12 @@ export default function HomeScreen() {
   const showAlbumReviews = activeTab === null || activeTab === 'albumReviews';
   const showSongReviews = activeTab === null || activeTab === 'songReviews';
 
+  const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? '';
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
         {/* ── Header ── */}
         <View style={styles.header}>
           <View>
@@ -80,11 +92,7 @@ export default function HomeScreen() {
         </View>
 
         {/* ── Quick Log CTA ── */}
-        <TouchableOpacity
-          style={styles.logCta}
-          onPress={() => navigation.navigate('Log')}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.logCta} onPress={() => navigation.navigate('Log')} activeOpacity={0.85}>
           {trendingAlbums[0] && <AlbumCover album={trendingAlbums[0]} size={40} borderRadius={10} />}
           <Text style={styles.logCtaText}>What did you listen to?</Text>
           <View style={styles.logCtaBtn}>
@@ -92,38 +100,57 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* ── Period Picker — segmented control ── */}
+        <View style={styles.periodRow}>
+          <Text style={styles.periodLabel}>Top charts</Text>
+          <View style={styles.segmented}>
+            {PERIODS.map((p, i) => (
+              <TouchableOpacity
+                key={p.key}
+                style={[
+                  styles.segment,
+                  i === 0 && styles.segmentFirst,
+                  i === PERIODS.length - 1 && styles.segmentLast,
+                  period === p.key && styles.segmentActive,
+                ]}
+                onPress={() => setPeriod(p.key)}
+              >
+                <Text style={[styles.segmentText, period === p.key && styles.segmentTextActive]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {/* ── Tab Chips ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabBar}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
           {TABS.map((t) => (
             <TouchableOpacity
               key={t.key}
               style={[styles.tabChip, activeTab === t.key && styles.tabChipActive]}
               onPress={() => toggleTab(t.key)}
             >
-              <Text style={[styles.tabText, activeTab === t.key && styles.tabTextActive]}>
-                {t.label}
-              </Text>
+              <Text style={[styles.tabText, activeTab === t.key && styles.tabTextActive]}>{t.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
 
-        {/* ── Trending Albums ── */}
+        {/* ── Top Albums ── */}
         {showAlbums && (
           <View style={styles.section}>
             <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Trending Albums</Text>
-              {activeTab === null && (
+              <Text style={styles.sectionTitle}>Top Albums · {periodLabel}</Text>
+              {activeTab === null && trendingAlbums.length > 0 && (
                 <TouchableOpacity onPress={() => toggleTab('albums')}>
                   <Text style={styles.seeAll}>See all</Text>
                 </TouchableOpacity>
               )}
             </View>
 
-            {activeTab === null ? (
+            {loadingCharts ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
+            ) : activeTab === null ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
                 {trendingAlbums.map((album) => (
                   <TouchableOpacity key={album.id} style={styles.albumCard} onPress={() => navigation.navigate('AlbumDetail', { id: album.id })} activeOpacity={0.8}>
@@ -151,31 +178,36 @@ export default function HomeScreen() {
         {showSongs && (
           <View style={styles.section}>
             <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Top Songs This Week</Text>
-              {activeTab === null && (
+              <Text style={styles.sectionTitle}>Top Songs · {periodLabel}</Text>
+              {activeTab === null && topTracks.length > 0 && (
                 <TouchableOpacity onPress={() => toggleTab('songs')}>
                   <Text style={styles.seeAll}>See all</Text>
                 </TouchableOpacity>
               )}
             </View>
-            <View style={styles.songsCard}>
-              {(activeTab === null ? topTracks.slice(0, 5) : topTracks).map((track, idx) => (
-                <TouchableOpacity
-                  key={track.id}
-                  style={[styles.songRow, idx > 0 && styles.songRowBorder]}
-                  onPress={() => navigation.navigate('Log', { track })}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.songRank, idx < 3 && styles.songRankTop]}>{idx + 1}</Text>
-                  <AlbumCover album={track.album} size={44} borderRadius={8} />
-                  <View style={styles.songInfo}>
-                    <Text style={styles.songTitle} numberOfLines={1}>{track.title}</Text>
-                    <Text style={styles.songArtist} numberOfLines={1}>{track.artist}</Text>
-                  </View>
-                  <Text style={styles.songDuration}>{track.duration}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+
+            {loadingCharts ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
+            ) : (
+              <View style={styles.songsCard}>
+                {(activeTab === null ? topTracks.slice(0, 5) : topTracks).map((track, idx) => (
+                  <TouchableOpacity
+                    key={track.id}
+                    style={[styles.songRow, idx > 0 && styles.songRowBorder]}
+                    onPress={() => navigation.navigate('Log', { track })}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.songRank, idx < 3 && styles.songRankTop]}>{idx + 1}</Text>
+                    <AlbumCover album={track.album} size={44} borderRadius={8} />
+                    <View style={styles.songInfo}>
+                      <Text style={styles.songTitle} numberOfLines={1}>{track.title}</Text>
+                      <Text style={styles.songArtist} numberOfLines={1}>{track.artist}</Text>
+                    </View>
+                    <Text style={styles.songDuration}>{track.duration}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -190,41 +222,32 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {(activeTab === null ? MOCK_ALBUM_REVIEWS.slice(0, 2) : MOCK_ALBUM_REVIEWS).map(
-              (review: AlbumReview) => (
-                <TouchableOpacity
-                  key={review.id}
-                  style={styles.reviewCard}
-                  onPress={() => navigation.navigate('AlbumDetail', { id: review.album.id })}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.reviewTop}>
-                    <View style={styles.reviewUser}>
-                      <Avatar user={review.user} size={28} />
-                      <View>
-                        <Text style={styles.reviewUserName}>{review.user.name}</Text>
-                        <Text style={styles.reviewDate}>{review.date}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.reviewLikesRow}>
-                      <Ionicons name="heart" size={13} color={Colors.primary} />
-                      <Text style={styles.reviewLikesCount}>{review.likes}</Text>
+            {(activeTab === null ? MOCK_ALBUM_REVIEWS.slice(0, 2) : MOCK_ALBUM_REVIEWS).map((review: AlbumReview) => (
+              <TouchableOpacity key={review.id} style={styles.reviewCard} onPress={() => navigation.navigate('AlbumDetail', { id: review.album.id })} activeOpacity={0.85}>
+                <View style={styles.reviewTop}>
+                  <View style={styles.reviewUser}>
+                    <Avatar user={review.user} size={28} />
+                    <View>
+                      <Text style={styles.reviewUserName}>{review.user.name}</Text>
+                      <Text style={styles.reviewDate}>{review.date}</Text>
                     </View>
                   </View>
-                  <View style={styles.reviewSubject}>
-                    <AlbumCover album={review.album} size={50} borderRadius={8} />
-                    <View style={styles.reviewSubjectInfo}>
-                      <Text style={styles.reviewSubjectTitle}>{review.album.title}</Text>
-                      <Text style={styles.reviewSubjectSub}>{review.album.artist}</Text>
-                      <StarRating rating={review.rating} size={13} />
-                    </View>
+                  <View style={styles.reviewLikesRow}>
+                    <Ionicons name="heart" size={13} color={Colors.primary} />
+                    <Text style={styles.reviewLikesCount}>{review.likes}</Text>
                   </View>
-                  <Text style={styles.reviewText} numberOfLines={activeTab === null ? 2 : 5}>
-                    "{review.text}"
-                  </Text>
-                </TouchableOpacity>
-              )
-            )}
+                </View>
+                <View style={styles.reviewSubject}>
+                  <AlbumCover album={review.album} size={50} borderRadius={8} />
+                  <View style={styles.reviewSubjectInfo}>
+                    <Text style={styles.reviewSubjectTitle}>{review.album.title}</Text>
+                    <Text style={styles.reviewSubjectSub}>{review.album.artist}</Text>
+                    <StarRating rating={review.rating} size={13} />
+                  </View>
+                </View>
+                <Text style={styles.reviewText} numberOfLines={activeTab === null ? 2 : 5}>"{review.text}"</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 
@@ -239,36 +262,32 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {(activeTab === null ? MOCK_SONG_REVIEWS.slice(0, 2) : MOCK_SONG_REVIEWS).map(
-              (review: SongReview) => (
-                <View key={review.id} style={styles.reviewCard}>
-                  <View style={styles.reviewTop}>
-                    <View style={styles.reviewUser}>
-                      <Avatar user={review.user} size={28} />
-                      <View>
-                        <Text style={styles.reviewUserName}>{review.user.name}</Text>
-                        <Text style={styles.reviewDate}>{review.date}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.reviewLikesRow}>
-                      <Ionicons name="heart" size={13} color={Colors.primary} />
-                      <Text style={styles.reviewLikesCount}>{review.likes}</Text>
+            {(activeTab === null ? MOCK_SONG_REVIEWS.slice(0, 2) : MOCK_SONG_REVIEWS).map((review: SongReview) => (
+              <View key={review.id} style={styles.reviewCard}>
+                <View style={styles.reviewTop}>
+                  <View style={styles.reviewUser}>
+                    <Avatar user={review.user} size={28} />
+                    <View>
+                      <Text style={styles.reviewUserName}>{review.user.name}</Text>
+                      <Text style={styles.reviewDate}>{review.date}</Text>
                     </View>
                   </View>
-                  <View style={styles.reviewSubject}>
-                    <AlbumCover album={review.track.album} size={50} borderRadius={8} />
-                    <View style={styles.reviewSubjectInfo}>
-                      <Text style={styles.reviewSubjectTitle}>{review.track.title}</Text>
-                      <Text style={styles.reviewSubjectSub}>{review.track.artist}</Text>
-                      <StarRating rating={review.rating} size={13} />
-                    </View>
+                  <View style={styles.reviewLikesRow}>
+                    <Ionicons name="heart" size={13} color={Colors.primary} />
+                    <Text style={styles.reviewLikesCount}>{review.likes}</Text>
                   </View>
-                  <Text style={styles.reviewText} numberOfLines={activeTab === null ? 2 : 5}>
-                    "{review.text}"
-                  </Text>
                 </View>
-              )
-            )}
+                <View style={styles.reviewSubject}>
+                  <AlbumCover album={review.track.album} size={50} borderRadius={8} />
+                  <View style={styles.reviewSubjectInfo}>
+                    <Text style={styles.reviewSubjectTitle}>{review.track.title}</Text>
+                    <Text style={styles.reviewSubjectSub}>{review.track.artist}</Text>
+                    <StarRating rating={review.rating} size={13} />
+                  </View>
+                </View>
+                <Text style={styles.reviewText} numberOfLines={activeTab === null ? 2 : 5}>"{review.text}"</Text>
+              </View>
+            ))}
           </View>
         )}
       </ScrollView>
@@ -281,94 +300,80 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingBottom: 32, paddingTop: 8 },
 
-  // Header
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    paddingTop: 4,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 16, paddingHorizontal: 16, paddingTop: 4,
   },
   appName: { color: Colors.primary, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
   subtitle: { color: Colors.muted, fontSize: 12, marginTop: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconBtn: { position: 'relative' },
   notifDot: {
-    position: 'absolute',
-    top: -1,
-    right: -1,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.primary,
-    borderWidth: 1.5,
-    borderColor: Colors.background,
+    position: 'absolute', top: -1, right: -1,
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: Colors.primary, borderWidth: 1.5, borderColor: Colors.background,
   },
 
-  // Log CTA
   logCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 10,
-    gap: 12,
-    marginBottom: 16,
-    marginHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
+    borderRadius: 14, padding: 10, gap: 12, marginBottom: 16, marginHorizontal: 16,
   },
   logCtaText: { flex: 1, color: Colors.muted, fontSize: 14 },
   logCtaBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
   },
 
-  // Tab bar
-  tabBar: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 20 },
-  tabChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+  // Period picker
+  periodRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, marginBottom: 14,
+  },
+  periodLabel: { color: Colors.text, fontSize: 15, fontWeight: '700' },
+  segmented: {
+    flexDirection: 'row',
     backgroundColor: Colors.surface,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  segment: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRightWidth: 1, borderRightColor: Colors.border,
+  },
+  segmentFirst: { borderLeftWidth: 0 },
+  segmentLast: { borderRightWidth: 0 },
+  segmentActive: { backgroundColor: Colors.primary },
+  segmentText: { color: Colors.muted, fontSize: 13, fontWeight: '600' },
+  segmentTextActive: { color: Colors.background, fontWeight: '700' },
+
+  tabBar: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 20 },
+  tabChip: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
   },
   tabChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
   tabText: { color: Colors.muted, fontSize: 13, fontWeight: '600' },
   tabTextActive: { color: Colors.primary },
 
-  // Sections
   section: { marginBottom: 28, paddingHorizontal: 16 },
   sectionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14,
   },
   sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '800', letterSpacing: -0.2 },
   seeAll: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
 
-  // Horizontal album scroll
   hScroll: { gap: 12, paddingRight: 4 },
   albumCard: { width: 134, gap: 6 },
   albumCardTitle: { color: Colors.text, fontSize: 13, fontWeight: '700' },
   albumCardArtist: { color: Colors.muted, fontSize: 12, marginBottom: 2 },
-
-  // Albums grid (full tab)
   albumsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   albumGridItem: { width: '47%', gap: 6 },
 
-  // Songs
   songsCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.surface, borderRadius: 16, overflow: 'hidden',
+    borderWidth: 1, borderColor: Colors.border,
   },
   songRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
   songRowBorder: { borderTopWidth: 1, borderTopColor: Colors.divider },
@@ -377,19 +382,11 @@ const styles = StyleSheet.create({
   songInfo: { flex: 1 },
   songTitle: { color: Colors.text, fontSize: 14, fontWeight: '600' },
   songArtist: { color: Colors.muted, fontSize: 12, marginTop: 2 },
-  songMeta: { alignItems: 'flex-end', gap: 3 },
-  songPlays: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
   songDuration: { color: Colors.muted, fontSize: 11 },
 
-  // Reviews
   reviewCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.surface, borderRadius: 16, padding: 14,
+    marginBottom: 10, gap: 12, borderWidth: 1, borderColor: Colors.border,
   },
   reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   reviewUser: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -397,7 +394,10 @@ const styles = StyleSheet.create({
   reviewDate: { color: Colors.muted, fontSize: 11, marginTop: 1 },
   reviewLikesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   reviewLikesCount: { color: Colors.muted, fontSize: 12 },
-  reviewSubject: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surfaceAlt, borderRadius: 10, padding: 10 },
+  reviewSubject: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surfaceAlt, borderRadius: 10, padding: 10,
+  },
   reviewSubjectInfo: { flex: 1, gap: 3 },
   reviewSubjectTitle: { color: Colors.text, fontWeight: '700', fontSize: 14 },
   reviewSubjectSub: { color: Colors.textSecondary, fontSize: 12 },
