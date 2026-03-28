@@ -6,6 +6,7 @@
  */
 
 import { Album, Track } from '../constants/mockData';
+import { UserTasteVector, ItemSignal } from './cf';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -105,8 +106,10 @@ export function buildTasteProfile(
   let signalCount = onboardingGenres.length + onboardingArtists.length;
 
   // Accumulate from logged entries (albums & songs)
+  // Album entries get 0.6× weight — rating a whole album is a broader signal than rating a specific song
   for (const entry of entries) {
-    const w = ratingWeight(entry.rating) + (entry.liked ? 0.3 : 0);
+    const baseWeight = ratingWeight(entry.rating) + (entry.liked ? 0.3 : 0);
+    const w = entry.type === 'album' ? baseWeight * 0.6 : baseWeight;
     const album = entry.albumData;
     applyWeight(genres,  (album.genre ?? []).map((g) => g.toLowerCase()), w);
     applyWeight(artists, album.artist.split(',').map(normalizeArtist), w);
@@ -148,7 +151,7 @@ export function buildSpotifyQueries(
 ): string[] {
   const queries: string[] = [];
 
-  if (profile.signalCount < 5) {
+  if (profile.signalCount < 2) {
     // Cold start: use onboarding genres directly
     const fallback = onboardingGenres.slice(0, 3);
     return fallback.length > 0 ? fallback : ['pop'];
@@ -222,6 +225,33 @@ export function rankWithDiversity(candidates: ScoredTrack[]): Track[] {
   return [...topTier, ...bottomTier].map((c) => c.track);
 }
 
+// ─── Core: Score an Album ────────────────────────────────────────────────────
+
+/**
+ * Scores a candidate album against the user's taste profile.
+ * Albums from Deezer have real genre arrays, making genre scoring reliable.
+ */
+export function scoreAlbum(album: Album, profile: TasteProfile): number {
+  let score = 0;
+
+  // Genre match — 50% of score (Deezer albums have real genre data)
+  const genres = (album.genre ?? []).map((g) => g.toLowerCase());
+  const genreScore = genres.reduce((sum, g) => sum + (profile.genres[g] ?? 0), 0);
+  score += 0.5 * Math.min(genreScore, 1);
+
+  // Artist match — 35% of score
+  const artists = album.artist.split(',').map(normalizeArtist);
+  for (const a of artists) {
+    score += 0.35 * (profile.artists[a] ?? 0);
+  }
+
+  // Era match — 15% of score
+  const era = eraKey(album.year ?? 0);
+  if (era) score += 0.15 * (profile.eras[era] ?? 0);
+
+  return score;
+}
+
 // ─── Utility: Deduplicate tracks by ID ───────────────────────────────────────
 
 export function deduplicateTracks(tracks: Track[]): Track[] {
@@ -231,4 +261,198 @@ export function deduplicateTracks(tracks: Track[]): Track[] {
     seen.add(t.id);
     return true;
   });
+}
+
+/** Returns entries of a weight map sorted by value descending. */
+export function sortedEntries(map: Record<string, number>): [string, number][] {
+  return Object.entries(map).sort(([, a], [, b]) => b - a);
+}
+
+// ─── Live Profile Update: apply a single swipe signal ────────────────────────
+
+const SWIPE_LEARNING_RATE = 0.12; // how much each swipe shifts the profile
+
+function swipeWeight(action: 'listened' | 'not_heard' | 'saved', rating: number | null): number {
+  if (action === 'not_heard') return 0;
+  if (action === 'saved')     return 0.6;
+  return rating != null ? ratingWeight(rating) : 0.3;
+}
+
+function renorm(map: Record<string, number>): Record<string, number> {
+  const max = Math.max(...Object.values(map), 0.001);
+  return Object.fromEntries(Object.entries(map).map(([k, v]) => [k, v / max]));
+}
+
+/**
+ * Incrementally updates a taste profile with a single swipe signal.
+ * Called after each card swipe so the very next card reflects the new signal.
+ * Uses a small learning rate so a single swipe doesn't dominate the profile.
+ */
+export function applySwipeSignal(
+  profile: TasteProfile,
+  itemGenres: string[],
+  itemArtist: string,
+  itemYear: number,
+  action: 'listened' | 'not_heard' | 'saved',
+  rating: number | null,
+): TasteProfile {
+  const w = swipeWeight(action, rating);
+  if (w === 0) return { ...profile, signalCount: profile.signalCount + 1 };
+
+  const delta = w * SWIPE_LEARNING_RATE;
+
+  const newGenres  = { ...profile.genres };
+  const newArtists = { ...profile.artists };
+  const newEras    = { ...profile.eras };
+
+  for (const g of itemGenres.map((g) => g.toLowerCase())) {
+    newGenres[g] = Math.max(0, Math.min(2, (newGenres[g] ?? 0) + delta));
+  }
+  for (const a of itemArtist.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
+    newArtists[a] = Math.max(0, Math.min(2, (newArtists[a] ?? 0) + delta));
+  }
+  const era = itemYear > 0 ? `${Math.floor(itemYear / 10) * 10}s` : null;
+  if (era) newEras[era] = Math.max(0, Math.min(2, (newEras[era] ?? 0) + delta));
+
+  return {
+    genres:      renorm(newGenres),
+    artists:     renorm(newArtists),
+    eras:        renorm(newEras),
+    signalCount: profile.signalCount + 1,
+  };
+}
+
+// ─── User-User CF: Cosine Similarity + Profile Blending ──────────────────────
+
+/** Cosine similarity between two sparse weight maps. Range [0..1]. */
+export function cosineSimilarity(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): number {
+  let dot = 0, magA = 0, magB = 0;
+  for (const [k, v] of Object.entries(a)) {
+    dot += v * (b[k] ?? 0);
+    magA += v * v;
+  }
+  for (const v of Object.values(b)) magB += v * v;
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom < 0.0001 ? 0 : dot / denom;
+}
+
+/**
+ * Blends the current user's taste profile with an average of the top-5 most
+ * similar users' profiles (user-user CF).
+ * - Requires at least 3 other users with vectors, otherwise returns myProfile unchanged.
+ * - Blend ratio: 75% mine, 25% social average.
+ */
+export function blendWithSimilarUsers(
+  myProfile: TasteProfile,
+  allVectors: UserTasteVector[],
+  myUserId: string,
+): TasteProfile {
+  const others = allVectors.filter((v) => v.user_id !== myUserId && v.signal_count >= 2);
+  if (others.length < 3) return myProfile;
+
+  // Find top-5 most similar users by genre cosine similarity
+  const similarities = others.map((v) => ({
+    vector: v,
+    sim: cosineSimilarity(myProfile.genres, v.genre_vector),
+  }));
+  similarities.sort((a, b) => b.sim - a.sim);
+  const top5 = similarities.slice(0, 5).filter((s) => s.sim > 0.1);
+  if (top5.length === 0) return myProfile;
+
+  // Weighted average of similar users' vectors
+  const totalSim = top5.reduce((s, x) => s + x.sim, 0);
+  const socialGenres: Record<string, number> = {};
+  const socialArtists: Record<string, number> = {};
+  const socialEras: Record<string, number> = {};
+
+  for (const { vector, sim } of top5) {
+    const w = sim / totalSim;
+    for (const [k, v] of Object.entries(vector.genre_vector))  socialGenres[k]  = (socialGenres[k]  ?? 0) + v * w;
+    for (const [k, v] of Object.entries(vector.artist_vector)) socialArtists[k] = (socialArtists[k] ?? 0) + v * w;
+    for (const [k, v] of Object.entries(vector.era_vector))    socialEras[k]    = (socialEras[k]    ?? 0) + v * w;
+  }
+
+  // Blend: 75% my profile, 25% social average
+  function blend(mine: Record<string, number>, social: Record<string, number>): Record<string, number> {
+    const keys = new Set([...Object.keys(mine), ...Object.keys(social)]);
+    const merged: Record<string, number> = {};
+    for (const k of keys) merged[k] = 0.75 * (mine[k] ?? 0) + 0.25 * (social[k] ?? 0);
+    return merged;
+  }
+
+  return {
+    genres:      blend(myProfile.genres,  socialGenres),
+    artists:     blend(myProfile.artists, socialArtists),
+    eras:        blend(myProfile.eras,    socialEras),
+    signalCount: myProfile.signalCount,
+  };
+}
+
+// ─── Item-Item CF: Community Score ───────────────────────────────────────────
+
+/**
+ * Community score [0..1] derived from aggregate item ratings.
+ * Formula: (avg_rating/5) × log-scaled popularity weight.
+ * Items with no signal return 0 — content score carries full weight.
+ */
+export function communityScore(signal: ItemSignal | undefined): number {
+  if (!signal || signal.total_ratings === 0) return 0;
+  const ratingScore = signal.avg_rating / 5;                             // [0..1]
+  const popularity  = Math.log2(signal.total_ratings + 1) / Math.log2(101); // [0..1] saturates at ~100 ratings
+  return ratingScore * popularity;
+}
+
+// ─── Hybrid Final Score ───────────────────────────────────────────────────────
+
+/**
+ * Combines blended content score (user-user CF baked in) with community score.
+ * Weights adapt to available data:
+ *   - signalCount < 2:  100% content (cold start)
+ *   - community === 0:  100% content (no item signals yet)
+ *   - otherwise:        75% content + 25% community
+ */
+export function hybridFinalScore(
+  contentScore: number,
+  community: number,
+  signalCount: number,
+): number {
+  if (signalCount < 2 || community === 0) return contentScore;
+  return 0.75 * contentScore + 0.25 * community;
+}
+
+// ─── Explore/Exploit: Epsilon-Greedy ─────────────────────────────────────────
+
+/**
+ * Epsilon-greedy ranking: injects exploration wildcards into the ranked list.
+ * ~15% of positions are filled with random items from the lower-scoring pool,
+ * spread throughout the queue (not just appended at the end).
+ */
+export function epsilonGreedyRank<T extends { score: number }>(
+  items: T[],
+  epsilon = 0.15,
+): T[] {
+  if (items.length <= 2) return items;
+
+  const sorted = [...items].sort((a, b) => b.score - a.score);
+  const splitAt = Math.floor(sorted.length * (1 - epsilon));
+  const exploitPool = sorted.slice(0, splitAt);
+  const explorePool = sorted.slice(splitAt).sort(() => Math.random() - 0.5);
+
+  // Weave explore items into the exploit list at regular intervals
+  const result: T[] = [];
+  const exploreEvery = Math.floor(1 / epsilon); // ~every 7th slot
+  let ei = 0;
+  for (let i = 0; i < exploitPool.length; i++) {
+    result.push(exploitPool[i]);
+    if ((i + 1) % exploreEvery === 0 && ei < explorePool.length) {
+      result.push(explorePool[ei++]);
+    }
+  }
+  // Append any remaining explore items
+  while (ei < explorePool.length) result.push(explorePool[ei++]);
+
+  return result;
 }

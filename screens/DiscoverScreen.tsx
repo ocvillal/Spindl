@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, Animated,
-  PanResponder, TouchableOpacity, ActivityIndicator, Dimensions,
+  PanResponder, TouchableOpacity, ActivityIndicator, Dimensions, Linking,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../store/theme';
 import { AppTheme } from '../constants/themes';
@@ -10,100 +12,281 @@ import { Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
 import { searchAll } from '../services/spotify';
+import { getTopTracksForPeriod } from '../services/charts';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../store/auth';
 import { useProfile } from '../store/profile';
+import { useRatings } from '../store/ratings';
 import {
-  buildTasteProfile, buildSpotifyQueries, scoreTrack,
-  rankWithDiversity, deduplicateTracks, SignalEntry, SignalAction,
+  buildTasteProfile, scoreTrack,
+  deduplicateTracks, sortedEntries,
+  blendWithSimilarUsers, communityScore, hybridFinalScore, epsilonGreedyRank,
+  applySwipeSignal,
+  SignalEntry, SignalAction, TasteProfile,
 } from '../services/recommendations';
+import {
+  upsertTasteVector, fetchAllTasteVectors, fetchItemSignals,
+  UserTasteVector, ItemSignal,
+} from '../services/cf';
+import { RootStackParamList } from '../App';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3;
 const EXIT_DURATION = 220;
 const SHEET_HEIGHT = 340;
+const POOL_REFETCH_THRESHOLD = 5; // fetch more when pool drops below this
+
+function openInSpotify(track: Track) {
+  const isSpotifyId = /^[A-Za-z0-9]{22}$/.test(track.id);
+  // Deep link opens Spotify app directly (works in production builds).
+  // Falls back to web player if Spotify isn't installed or on Expo Go.
+  const deepLink = isSpotifyId
+    ? `spotify:track:${track.id}`
+    : `spotify:search:${encodeURIComponent(`${track.title} ${track.artist}`)}`;
+  const webLink = isSpotifyId
+    ? `https://open.spotify.com/track/${track.id}`
+    : `https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artist}`)}`;
+
+  Linking.canOpenURL(deepLink)
+    .then((supported) => Linking.openURL(supported ? deepLink : webLink))
+    .catch(() => Linking.openURL(webLink));
+}
 
 type Action = 'listened' | 'not_heard' | 'saved';
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+// ─── DiscoverItem ─────────────────────────────────────────────────────────────
+type DiscoverItem = { kind: 'track'; item: Track };
+type ScoredItem = { discoverItem: DiscoverItem; score: number };
+
+function getItemSignalData(di: DiscoverItem): { genres: string[]; artist: string; year: number } {
+  return { genres: di.item.album?.genre ?? [], artist: di.item.artist, year: di.item.album?.year ?? 0 };
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function DiscoverScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<Nav>();
   const { session } = useAuth();
   const { profile } = useProfile();
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [showRating, setShowRating] = useState(false);   // sheet fully open, interactions enabled
-  const [ratingMode, setRatingMode] = useState(false);   // sheet animating or open — hides buttons immediately
+  const { logSong } = useRatings();
+
+  // Display state — only 2 cards ever rendered
+  const [currentItem, setCurrentItem] = useState<DiscoverItem | null>(null);
+  const [nextItem, setNextItem]       = useState<DiscoverItem | null>(null);
+  const [queueSize, setQueueSize]     = useState(0);
+  const [loading, setLoading]         = useState(true);
+
+  // Rating sheet state
+  const [showRating, setShowRating]   = useState(false);
+  const [ratingMode, setRatingMode]   = useState(false);
   const [pendingRating, setPendingRating] = useState(0);
   const [actionLabel, setActionLabel] = useState<Action | null>(null);
+  const [exitingItem, setExitingItem] = useState<DiscoverItem | null>(null);
 
-  const [exitingTrack, setExitingTrack] = useState<Track | null>(null);
+  // Mutable refs — don't need re-renders
+  const poolRef         = useRef<ScoredItem[]>([]);
+  const profileRef      = useRef<TasteProfile | null>(null);
+  const allVectorsRef   = useRef<UserTasteVector[]>([]);
+  const itemSignalMapRef= useRef<Map<string, ItemSignal>>(new Map());
+  const seenIdsRef      = useRef<Set<string>>(new Set());
+  const isFetchingRef   = useRef(false);
+  const currentItemRef  = useRef<DiscoverItem | null>(null); // stable ref for closures
+
+  // Keep ref in sync with state
+  useEffect(() => { currentItemRef.current = currentItem; }, [currentItem]);
+
+  // ── Animations ────────────────────────────────────────────────────────────
+
   const exitPosition = useRef(new Animated.ValueXY()).current;
   const exitRotate = exitPosition.x.interpolate({
-    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-    outputRange: ['-12deg', '0deg', '12deg'],
+    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH], outputRange: ['-12deg', '0deg', '12deg'],
   });
-
   const position = useRef(new Animated.ValueXY()).current;
   const rotate = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-    outputRange: ['-12deg', '0deg', '12deg'],
+    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH], outputRange: ['-12deg', '0deg', '12deg'],
   });
-  const heardOpacity = position.x.interpolate({
-    inputRange: [0, 60], outputRange: [0, 1], extrapolate: 'clamp',
-  });
-  const nopeOpacity = position.x.interpolate({
-    inputRange: [-60, 0], outputRange: [1, 0], extrapolate: 'clamp',
-  });
+  const heardOpacity = position.x.interpolate({ inputRange: [0, 60], outputRange: [0, 1], extrapolate: 'clamp' });
+  const nopeOpacity  = position.x.interpolate({ inputRange: [-60, 0], outputRange: [1, 0], extrapolate: 'clamp' });
 
-  // Rating sheet — driven by this value: 0 = hidden, 1 = fully visible.
-  // Updated live during gesture so the sheet peeks as the user swipes right.
   const ratingSheetAnim = useRef(new Animated.Value(0)).current;
-  const ratingSheetTranslateY = ratingSheetAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [SHEET_HEIGHT, 0],
-  });
-  // Dim overlay is a SEPARATE layer — never applied to the sheet itself so
-  // the sheet stays fully opaque.
-  const dimOpacity = ratingSheetAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
+  const ratingSheetTranslateY = ratingSheetAnim.interpolate({ inputRange: [0, 1], outputRange: [SHEET_HEIGHT, 0] });
+  const dimOpacity = ratingSheetAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' });
 
-  useEffect(() => { loadTracks(); }, []);
+  useEffect(() => { loadItems(); }, []);
 
-  async function loadTracks() {
+  // ── Data loading ──────────────────────────────────────────────────────────
+
+  async function loadItems() {
     setLoading(true);
     try {
-      const [{ data: entriesData }, { data: actionsData }] = await Promise.all([
+      const [
+        chartTracksRes,
+        { data: entriesData },
+        { data: actionsData },
+      ] = await Promise.all([
+        getTopTracksForPeriod('week', 20),
         supabase.from('entries').select('*'),
         supabase.from('discover_actions').select('*'),
       ]);
+
+      const seenIds = new Set<string>((actionsData ?? []).map((r: any) => String(r.track_id)));
+      seenIdsRef.current = seenIds;
+
       const entries: SignalEntry[] = (entriesData ?? []).map((row: any) => ({
         type: row.type, rating: row.rating, liked: row.liked,
         albumData: row.type === 'album' ? row.album_data : row.track_data?.album,
       }));
       const actions: SignalAction[] = (actionsData ?? []).map((row: any) => ({
         action: row.action, rating: row.rating ?? null,
-        trackData: { album: row.track_data?.album, artist: row.track_data?.artist ?? '' },
+        trackData: { album: row.track_data?.album ?? {}, artist: row.track_data?.artist ?? '' },
       }));
+
       const tasteProfile = buildTasteProfile(profile?.genres ?? [], profile?.favArtists ?? [], entries, actions);
-      const queries = buildSpotifyQueries(tasteProfile, profile?.genres ?? []);
-      const results = await Promise.allSettled(queries.map((q) => searchAll(q).then((r) => r.tracks)));
-      const allTracks = results.flatMap((r) => r.status === 'fulfilled' ? r.value : []);
-      const deduped = deduplicateTracks(allTracks);
-      const scored = deduped.map((t) => ({ track: t, score: scoreTrack(t, tasteProfile) }));
-      const ranked = rankWithDiversity(scored);
-      setTracks(ranked.length > 0 ? ranked : deduped);
+      profileRef.current = tasteProfile;
+
+      if (session?.user.id) upsertTasteVector(session.user.id, tasteProfile).catch(() => {});
+
+      const topArtists = sortedEntries(tasteProfile.artists).slice(0, 2).map(([a]) => a);
+      const allCandidateIds = chartTracksRes.map((t) => t.id);
+
+      const [artistResults, allVectors, itemSignalMap] = await Promise.all([
+        Promise.allSettled(topArtists.map((a) => searchAll(a).then((r) => r.tracks))),
+        fetchAllTasteVectors(),
+        fetchItemSignals(allCandidateIds),
+      ]);
+
+      allVectorsRef.current    = allVectors;
+      itemSignalMapRef.current = itemSignalMap;
+
+      const artistTracks = artistResults.flatMap((r) => r.status === 'fulfilled' ? r.value : []);
+      const blendedProfile = session?.user.id
+        ? blendWithSimilarUsers(tasteProfile, allVectors, session.user.id)
+        : tasteProfile;
+
+      let allTracks = deduplicateTracks([...chartTracksRes, ...artistTracks]).filter((t) => !seenIds.has(t.id));
+
+      // If everything has been seen, reset and show full pool again
+      if (allTracks.length === 0) {
+        seenIdsRef.current = new Set();
+        allTracks = deduplicateTracks([...chartTracksRes, ...artistTracks]);
+      }
+
+      const scored = buildScoredPool(allTracks, blendedProfile, itemSignalMap, tasteProfile.signalCount);
+      poolRef.current = scored;
+
+      showTopTwo(scored);
     } catch (e) {
       console.error('[Discover] load error:', e);
     }
     setLoading(false);
   }
 
-  // Always points to the latest commitSwipe so the pan responder is never stale.
+  /** Score + rank all candidates into a ScoredItem pool. */
+  function buildScoredPool(
+    tracks: Track[],
+    blended: TasteProfile,
+    signalMap: Map<string, ItemSignal>,
+    signalCount: number,
+  ): ScoredItem[] {
+    const scored: ScoredItem[] = tracks.map((t) => ({
+      discoverItem: { kind: 'track', item: t },
+      score: hybridFinalScore(scoreTrack(t, blended), communityScore(signalMap.get(t.id)), signalCount),
+    }));
+    return epsilonGreedyRank(scored.sort((a, b) => b.score - a.score));
+  }
+
+  function showTopTwo(pool: ScoredItem[]) {
+    setCurrentItem(pool[0]?.discoverItem ?? null);
+    setNextItem(pool[1]?.discoverItem ?? null);
+    setQueueSize(pool.length);
+  }
+
+  /** Re-rank the remaining pool after a swipe updates the profile. */
+  function reRankPool(pool: ScoredItem[]): ScoredItem[] {
+    const p = profileRef.current;
+    if (!p) return pool;
+    const blended = session?.user.id
+      ? blendWithSimilarUsers(p, allVectorsRef.current, session.user.id)
+      : p;
+    const signalMap = itemSignalMapRef.current;
+
+    for (const entry of pool) {
+      entry.score = hybridFinalScore(
+        scoreTrack(entry.discoverItem.item, blended),
+        communityScore(signalMap.get(entry.discoverItem.item.id)),
+        p.signalCount,
+      );
+    }
+    return pool.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Core adaptive step — called after every swipe action.
+   * Updates the taste profile with the swipe signal, re-ranks the remaining pool,
+   * and immediately promotes the best next card.
+   */
+  function advanceQueue(swipedItem: DiscoverItem, action: Action, rating: number | null) {
+    seenIdsRef.current.add(swipedItem.item.id);
+
+    // 1. Update live taste profile with this swipe
+    if (profileRef.current) {
+      const { genres, artist, year } = getItemSignalData(swipedItem);
+      profileRef.current = applySwipeSignal(profileRef.current, genres, artist, year, action, rating);
+    }
+
+    // 2. Remove swiped item, re-rank with updated profile
+    const remaining = poolRef.current.filter((s) => s.discoverItem.item.id !== swipedItem.item.id);
+    const reRanked = reRankPool(remaining);
+    poolRef.current = reRanked;
+
+    // 3. Promote new top items to display
+    showTopTwo(reRanked);
+
+    // 4. Background-fetch more candidates if pool is running low
+    if (reRanked.length < POOL_REFETCH_THRESHOLD && !isFetchingRef.current) {
+      fetchMoreCandidates();
+    }
+  }
+
+  async function fetchMoreCandidates() {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    try {
+      const moreTracks = await getTopTracksForPeriod('week', 20);
+      const p = profileRef.current;
+      if (!p) return;
+
+      const blended = session?.user.id
+        ? blendWithSimilarUsers(p, allVectorsRef.current, session.user.id)
+        : p;
+
+      const existingIds = new Set(poolRef.current.map((s) => s.discoverItem.item.id));
+      const freshTracks = deduplicateTracks(moreTracks).filter(
+        (t) => !seenIdsRef.current.has(t.id) && !existingIds.has(t.id)
+      );
+
+      if (freshTracks.length === 0) return;
+
+      const newSignals = await fetchItemSignals(freshTracks.map((t) => t.id));
+      for (const [k, v] of newSignals) itemSignalMapRef.current.set(k, v);
+
+      const newScored = buildScoredPool(freshTracks, blended, itemSignalMapRef.current, p.signalCount);
+      const merged = reRankPool([...poolRef.current, ...newScored]);
+      poolRef.current = merged;
+
+      if (!currentItem) showTopTwo(merged);
+      else setQueueSize(merged.length);
+    } catch (e) {
+      console.error('[Discover] fetchMore error:', e);
+    }
+    isFetchingRef.current = false;
+  }
+
+  // ── Swipe / button handlers ────────────────────────────────────────────────
+
   const commitSwipeRef = useRef<(action: Action, direction: 'left' | 'right' | 'up') => void>(() => {});
 
   const panResponder = useRef(
@@ -123,57 +306,25 @@ export default function DiscoverScreen() {
       ) as any,
       onPanResponderRelease: (_, gesture) => {
         setActionLabel(null);
-        if (gesture.dx > SWIPE_THRESHOLD) {
-          commitSwipeRef.current('listened', 'right');
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
-          commitSwipeRef.current('not_heard', 'left');
-        } else if (gesture.dy < -SWIPE_THRESHOLD) {
-          commitSwipeRef.current('saved', 'up');
-        } else {
-          Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: false, tension: 80, friction: 8 }).start();
-        }
+        if (gesture.dx > SWIPE_THRESHOLD)       commitSwipeRef.current('listened', 'right');
+        else if (gesture.dx < -SWIPE_THRESHOLD) commitSwipeRef.current('not_heard', 'left');
+        else if (gesture.dy < -SWIPE_THRESHOLD) commitSwipeRef.current('saved', 'up');
+        else Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: false, tension: 80, friction: 8 }).start();
       },
     })
   ).current;
 
   function commitSwipe(action: Action, direction: 'left' | 'right' | 'up') {
-    const track = tracks[currentIndex];
-    if (!track) return;
+    const current = currentItemRef.current;
+    if (!current) return;
 
     const toX = direction === 'right' ? SCREEN_WIDTH * 1.5 : direction === 'left' ? -SCREEN_WIDTH * 1.5 : 0;
     const toY = direction === 'up' ? -SCREEN_WIDTH * 1.5 : 0;
 
     exitPosition.setValue({ x: (position.x as any)._value, y: (position.y as any)._value });
-    setExitingTrack(track);
+    setExitingItem(current);
     Animated.timing(exitPosition, { toValue: { x: toX, y: toY }, duration: EXIT_DURATION, useNativeDriver: false })
-      .start(() => setExitingTrack(null));
-
-    if (action === 'listened') {
-      position.setValue({ x: toX, y: toY });
-      setRatingMode(true); // immediately hides buttons/counter before animation starts
-      Animated.spring(ratingSheetAnim, { toValue: 1, useNativeDriver: false, tension: 80, friction: 8 })
-        .start(({ finished }) => { if (finished) setShowRating(true); });
-    } else {
-      ratingSheetAnim.setValue(0);
-      saveAction(action, null);
-      setCurrentIndex((i) => i + 1);
-      setPendingRating(0);
-      requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));
-    }
-  }
-  commitSwipeRef.current = commitSwipe;
-
-  function handleButton(action: Action) {
-    const track = tracks[currentIndex];
-    if (!track) return;
-
-    const toX = action === 'listened' ? SCREEN_WIDTH * 1.5 : action === 'not_heard' ? -SCREEN_WIDTH * 1.5 : 0;
-    const toY = action === 'saved' ? -SCREEN_WIDTH * 1.5 : 0;
-
-    exitPosition.setValue({ x: 0, y: 0 });
-    setExitingTrack(track);
-    Animated.timing(exitPosition, { toValue: { x: toX, y: toY }, duration: EXIT_DURATION, useNativeDriver: false })
-      .start(() => setExitingTrack(null));
+      .start(() => setExitingItem(null));
 
     if (action === 'listened') {
       position.setValue({ x: toX, y: toY });
@@ -182,31 +333,65 @@ export default function DiscoverScreen() {
         .start(({ finished }) => { if (finished) setShowRating(true); });
     } else {
       ratingSheetAnim.setValue(0);
-      saveAction(action, null);
-      setCurrentIndex((i) => i + 1);
-      setPendingRating(0);
+      if (action === 'saved') openInSpotify(current.item);
+      saveAction(action, null, current);
+      advanceQueue(current, action, null);
+      requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));
+    }
+  }
+  commitSwipeRef.current = commitSwipe;
+
+  function handleButton(action: Action) {
+    const current = currentItemRef.current;
+    if (!current) return;
+
+    const toX = action === 'listened' ? SCREEN_WIDTH * 1.5 : action === 'not_heard' ? -SCREEN_WIDTH * 1.5 : 0;
+    const toY = action === 'saved' ? -SCREEN_WIDTH * 1.5 : 0;
+
+    exitPosition.setValue({ x: 0, y: 0 });
+    setExitingItem(current);
+    Animated.timing(exitPosition, { toValue: { x: toX, y: toY }, duration: EXIT_DURATION, useNativeDriver: false })
+      .start(() => setExitingItem(null));
+
+    if (action === 'listened') {
+      position.setValue({ x: toX, y: toY });
+      setRatingMode(true);
+      Animated.spring(ratingSheetAnim, { toValue: 1, useNativeDriver: false, tension: 80, friction: 8 })
+        .start(({ finished }) => { if (finished) setShowRating(true); });
+    } else {
+      ratingSheetAnim.setValue(0);
+      if (action === 'saved') openInSpotify(current.item);
+      saveAction(action, null, current);
+      advanceQueue(current, action, null);
       requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));
     }
   }
 
-  async function saveAction(action: Action, rating: number | null) {
-    const track = tracks[currentIndex];
-    if (!track || !session) return;
+  async function saveAction(action: Action, rating: number | null, item: DiscoverItem) {
+    if (!session) return;
     await supabase.from('discover_actions').upsert(
-      { user_id: session.user.id, track_id: track.id, track_data: track, action, rating },
+      { user_id: session.user.id, track_id: item.item.id, track_data: item.item, action, rating },
       { onConflict: 'user_id,track_id' }
     );
   }
 
-  function nextCard() {
+  function nextCard(rating: number) {
+    const current = currentItemRef.current;
     Animated.timing(ratingSheetAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start(() => {
       setShowRating(false);
       setRatingMode(false);
-      setCurrentIndex((i) => i + 1);
       setPendingRating(0);
+      if (current) {
+        saveAction('listened', rating || null, current);
+        advanceQueue(current, 'listened', rating || null);
+        // Add to collection — rating > 0 means the user rated; 0 means they skipped
+        logSong(current.item, rating || 3, '', false).catch(() => {});
+      }
       requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));
     });
   }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -216,17 +401,13 @@ export default function DiscoverScreen() {
     );
   }
 
-  const currentTrack = tracks[currentIndex];
-  const nextTrack = tracks[currentIndex + 1];
-
-  // Queue exhausted — loop back silently with a fresh ranked order
-  if (!currentTrack && tracks.length > 0) {
-    setCurrentIndex(0);
-  }
-  if (!currentTrack) {
+  if (!currentItem) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}><ActivityIndicator color={colors.primary} size="large" /></View>
+        <View style={styles.center}>
+          <Text style={styles.emptyTitle}>You're all caught up</Text>
+          <Text style={styles.emptySubtitle}>Check back later for more discoveries</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -239,15 +420,12 @@ export default function DiscoverScreen() {
       </View>
 
       <View style={styles.cardStack}>
-        {nextTrack && (
+        {nextItem && (
           <View style={[styles.card, styles.cardBehind]}>
-            <AlbumCover album={nextTrack.album} size={SCREEN_WIDTH - 80} borderRadius={20} />
-            <Text style={styles.cardTitle} numberOfLines={1}>{nextTrack.title}</Text>
-            <Text style={styles.cardArtist} numberOfLines={1}>{nextTrack.artist}</Text>
+            {renderCardContent(nextItem, colors, styles, null)}
           </View>
         )}
 
-        {/* Main card */}
         {!ratingMode && (
           <Animated.View
             style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
@@ -259,66 +437,56 @@ export default function DiscoverScreen() {
             <Animated.View style={[styles.swipeIndicator, styles.nopeIndicator, { opacity: nopeOpacity }]}>
               <Text style={styles.swipeIndicatorText}>NOPE ✕</Text>
             </Animated.View>
-            <AlbumCover album={currentTrack.album} size={SCREEN_WIDTH - 80} borderRadius={20} />
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{currentTrack.title}</Text>
-              <Text style={styles.cardArtist} numberOfLines={1}>{currentTrack.artist}</Text>
-              <Text style={styles.cardAlbum} numberOfLines={1}>{currentTrack.album.title}</Text>
-              <Text style={styles.cardDuration}>{currentTrack.duration}</Text>
-            </View>
+            {renderCardContent(currentItem, colors, styles, navigation)}
           </Animated.View>
         )}
 
-        {/* Exit card — no interaction, animates away independently */}
-        {exitingTrack && (
+        {exitingItem && (
           <Animated.View
-            style={[styles.card, styles.exitCard, { transform: [{ translateX: exitPosition.x }, { translateY: exitPosition.y }, { rotate: exitRotate }] }]}
+            style={[styles.card, styles.exitCard, {
+              transform: [{ translateX: exitPosition.x }, { translateY: exitPosition.y }, { rotate: exitRotate }],
+            }]}
             pointerEvents="none"
           >
-            <AlbumCover album={exitingTrack.album} size={SCREEN_WIDTH - 80} borderRadius={20} />
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{exitingTrack.title}</Text>
-              <Text style={styles.cardArtist} numberOfLines={1}>{exitingTrack.artist}</Text>
-            </View>
+            {renderCardContent(exitingItem, colors, styles, null)}
           </Animated.View>
         )}
       </View>
 
-      {/* Dim overlay — fades in independently, never applied to the sheet so sheet stays opaque */}
       <Animated.View style={[StyleSheet.absoluteFill, styles.dimOverlay, { opacity: dimOpacity }]} pointerEvents="none" />
 
-      {/* Sheet — slides up from bottom, always fully opaque */}
       <Animated.View
         style={[styles.ratingSheet, { transform: [{ translateY: ratingSheetTranslateY }] }]}
         pointerEvents={showRating ? 'auto' : 'none'}
       >
         <Text style={styles.ratingTitle}>How was it?</Text>
-        <Text style={styles.ratingSubtitle}>{currentTrack.title}</Text>
+        <Text style={styles.ratingSubtitle}>
+          {currentItem.kind === 'track' ? currentItem.item.title : currentItem.item.title}
+        </Text>
         <StarRating rating={pendingRating} size={42} interactive onRate={setPendingRating} />
         <View style={styles.ratingActions}>
-          <TouchableOpacity style={styles.skipRatingBtn} onPress={() => { saveAction('listened', null); nextCard(); }}>
+          <TouchableOpacity style={styles.skipRatingBtn} onPress={() => nextCard(0)}>
             <Text style={styles.skipRatingText}>Skip rating</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.saveRatingBtn, pendingRating === 0 && styles.saveRatingBtnDisabled]}
             disabled={pendingRating === 0}
-            onPress={() => { saveAction('listened', pendingRating); nextCard(); }}
+            onPress={() => nextCard(pendingRating)}
           >
             <Text style={styles.saveRatingText}>Save</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
 
-      {/* Action buttons */}
       {!ratingMode && (
         <View style={styles.actions}>
           <TouchableOpacity style={[styles.actionBtn, styles.actionNope]} onPress={() => handleButton('not_heard')}>
             <Ionicons name="close" size={28} color="#E57373" />
-            <Text style={[styles.actionLabel, { color: '#E57373' }]}>Never heard</Text>
+            <Text style={[styles.actionLabel, { color: '#E57373' }]}>Skip</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, styles.actionSave]} onPress={() => handleButton('saved')}>
-            <Ionicons name="bookmark" size={24} color={colors.accent} />
-            <Text style={[styles.actionLabel, { color: colors.accent }]}>Save</Text>
+            <Ionicons name="add-circle-outline" size={24} color={colors.accent} />
+            <Text style={[styles.actionLabel, { color: colors.accent }]}>Queue</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, styles.actionHeart]} onPress={() => handleButton('listened')}>
             <Ionicons name="heart" size={28} color={colors.primary} />
@@ -327,17 +495,51 @@ export default function DiscoverScreen() {
         </View>
       )}
 
-      {!ratingMode && <Text style={styles.counter}>{currentIndex + 1} / {tracks.length}</Text>}
+      {!ratingMode && (
+        <Text style={styles.counter}>
+          {queueSize > 0 ? `${queueSize} in queue` : 'Loading more…'}
+        </Text>
+      )}
     </SafeAreaView>
   );
 }
+
+// ─── Card content renderer ────────────────────────────────────────────────────
+
+function renderCardContent(
+  discoverItem: DiscoverItem,
+  colors: AppTheme,
+  styles: ReturnType<typeof makeStyles>,
+  _navigation: NativeStackNavigationProp<RootStackParamList> | null,
+) {
+  const track = discoverItem.item;
+  return (
+    <>
+      <AlbumCover album={track.album} size={SCREEN_WIDTH - 80} borderRadius={20} />
+      <View style={styles.cardInfo}>
+        <View style={styles.cardTypeBadge}>
+          <Ionicons name="musical-note" size={11} color={colors.muted} />
+          <Text style={styles.cardTypeLabel}>Song</Text>
+        </View>
+        <Text style={styles.cardTitle} numberOfLines={1}>{track.title}</Text>
+        <Text style={styles.cardArtist} numberOfLines={1}>{track.artist}</Text>
+        <Text style={styles.cardAlbum} numberOfLines={1}>{track.album.title}</Text>
+        <Text style={styles.cardDuration}>{track.duration}</Text>
+      </View>
+    </>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const CARD_SIZE = SCREEN_WIDTH - 40;
 
 function makeStyles(colors: AppTheme) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.background },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+    emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+    emptySubtitle: { color: colors.muted, fontSize: 14, textAlign: 'center' },
     header: { paddingHorizontal: 20, paddingTop: 8, marginBottom: 12 },
     title: { color: colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
     subtitle: { color: colors.muted, fontSize: 13, marginTop: 2 },
@@ -352,6 +554,8 @@ function makeStyles(colors: AppTheme) {
     cardBehind: { transform: [{ scale: 0.95 }], opacity: 0.7 },
     exitCard: { zIndex: 10 },
     cardInfo: { gap: 4 },
+    cardTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
+    cardTypeLabel: { color: colors.muted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
     cardTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
     cardArtist: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
     cardAlbum: { color: colors.muted, fontSize: 13 },
@@ -391,8 +595,5 @@ function makeStyles(colors: AppTheme) {
     saveRatingBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
     saveRatingBtnDisabled: { opacity: 0.4 },
     saveRatingText: { color: colors.background, fontWeight: '800' },
-    emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
-    reloadBtn: { backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
-    reloadBtnText: { color: colors.background, fontWeight: '700' },
   });
 }
