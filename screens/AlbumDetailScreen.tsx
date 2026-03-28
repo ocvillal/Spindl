@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import { Album, Track, MOCK_USERS } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
@@ -17,6 +18,8 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'AlbumDetail'>;
 
 export default function AlbumDetailScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const { id, query } = route.params;
@@ -51,10 +54,10 @@ export default function AlbumDetailScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator color={Colors.primary} size="large" />
+          <ActivityIndicator color={colors.primary} size="large" />
         </View>
       </SafeAreaView>
     );
@@ -64,11 +67,11 @@ export default function AlbumDetailScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
 
         <View style={styles.hero}>
-          <LinearGradient colors={[album.coverGradient[0], Colors.background]} style={styles.heroGradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+          <LinearGradient colors={[album.coverGradient[0], colors.background]} style={styles.heroGradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
           <AlbumCover album={album} size={180} borderRadius={20} />
         </View>
 
@@ -107,13 +110,13 @@ export default function AlbumDetailScreen() {
             <Text style={styles.logBtnText}>{myEntry ? 'Update Log' : 'Log Album'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.iconAction, liked && styles.iconActionActive]} onPress={() => setLiked(!liked)}>
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? Colors.primary : Colors.muted} />
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? colors.primary : colors.muted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconAction}>
-            <Ionicons name="bookmark-outline" size={22} color={Colors.muted} />
+            <Ionicons name="bookmark-outline" size={22} color={colors.muted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconAction}>
-            <Ionicons name="paper-plane-outline" size={22} color={Colors.muted} />
+            <Ionicons name="paper-plane-outline" size={22} color={colors.muted} />
           </TouchableOpacity>
         </View>
 
@@ -144,7 +147,7 @@ export default function AlbumDetailScreen() {
                   <StarRating rating={3.5} size={12} />
                 </View>
                 <TouchableOpacity style={styles.recommendBtn}>
-                  <Ionicons name="paper-plane-outline" size={16} color={Colors.accent} />
+                  <Ionicons name="paper-plane-outline" size={16} color={colors.accent} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -168,50 +171,52 @@ export default function AlbumDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
-  content: { paddingBottom: 40 },
-  backBtn: { position: 'absolute', top: 12, left: 16, zIndex: 10, width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  hero: { alignItems: 'center', paddingTop: 60, paddingBottom: 24, position: 'relative' },
-  heroGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 300 },
-  albumInfo: { paddingHorizontal: 20, alignItems: 'center', gap: 6, marginBottom: 16 },
-  albumTitle: { color: Colors.text, fontSize: 24, fontWeight: '800', textAlign: 'center', letterSpacing: -0.3 },
-  albumArtist: { color: Colors.primary, fontSize: 16, fontWeight: '600' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  metaItem: { color: Colors.muted, fontSize: 13 },
-  metaDot: { color: Colors.border, fontSize: 13 },
-  genreTags: { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap', justifyContent: 'center' },
-  genreTag: { backgroundColor: Colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
-  genreTagText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '500' },
-  ratingSection: { paddingHorizontal: 20, marginBottom: 16 },
-  communityRating: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, padding: 14, gap: 14 },
-  avgRatingNum: { color: Colors.text, fontSize: 36, fontWeight: '800' },
-  ratingRight: { gap: 4 },
-  ratingCount: { color: Colors.muted, fontSize: 12 },
-  ctaRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 10, marginBottom: 24 },
-  logBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 13 },
-  logBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  iconAction: { width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' },
-  iconActionActive: { backgroundColor: Colors.primaryDim },
-  myEntrySection: { paddingHorizontal: 20, marginBottom: 24 },
-  myEntryCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: Colors.primary },
-  myEntryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  myEntryDate: { color: Colors.muted, fontSize: 12 },
-  myEntryReview: { color: Colors.textSecondary, fontSize: 13, fontStyle: 'italic', lineHeight: 19 },
-  editEntryBtn: { alignSelf: 'flex-start' },
-  editEntryText: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
-  section: { paddingHorizontal: 20, marginBottom: 24 },
-  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 12 },
-  friendsListened: { gap: 8 },
-  friendListenRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 12, padding: 10 },
-  friendListenInfo: { flex: 1, gap: 4 },
-  friendListenName: { color: Colors.text, fontWeight: '600', fontSize: 14 },
-  recommendBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.accentDim, justifyContent: 'center', alignItems: 'center' },
-  trackRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.divider, gap: 14 },
-  trackNum: { color: Colors.muted, fontSize: 13, width: 18, textAlign: 'right' },
-  trackName: { color: Colors.text, fontSize: 14, flex: 1 },
-  trackDuration: { color: Colors.muted, fontSize: 13 },
-  showMoreBtn: { paddingTop: 12, alignItems: 'center' },
-  showMoreText: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    scroll: { flex: 1 },
+    content: { paddingBottom: 40 },
+    backBtn: { position: 'absolute', top: 12, left: 16, zIndex: 10, width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+    hero: { alignItems: 'center', paddingTop: 60, paddingBottom: 24, position: 'relative' },
+    heroGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 300 },
+    albumInfo: { paddingHorizontal: 20, alignItems: 'center', gap: 6, marginBottom: 16 },
+    albumTitle: { color: colors.text, fontSize: 24, fontWeight: '800', textAlign: 'center', letterSpacing: -0.3 },
+    albumArtist: { color: colors.primary, fontSize: 16, fontWeight: '600' },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+    metaItem: { color: colors.muted, fontSize: 13 },
+    metaDot: { color: colors.border, fontSize: 13 },
+    genreTags: { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap', justifyContent: 'center' },
+    genreTag: { backgroundColor: colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+    genreTagText: { color: colors.textSecondary, fontSize: 12, fontWeight: '500' },
+    ratingSection: { paddingHorizontal: 20, marginBottom: 16 },
+    communityRating: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 14, padding: 14, gap: 14 },
+    avgRatingNum: { color: colors.text, fontSize: 36, fontWeight: '800' },
+    ratingRight: { gap: 4 },
+    ratingCount: { color: colors.muted, fontSize: 12 },
+    ctaRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 10, marginBottom: 24 },
+    logBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 13 },
+    logBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    iconAction: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
+    iconActionActive: { backgroundColor: colors.primaryDim },
+    myEntrySection: { paddingHorizontal: 20, marginBottom: 24 },
+    myEntryCard: { backgroundColor: colors.surface, borderRadius: 14, padding: 14, gap: 8, borderLeftWidth: 3, borderLeftColor: colors.primary },
+    myEntryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    myEntryDate: { color: colors.muted, fontSize: 12 },
+    myEntryReview: { color: colors.textSecondary, fontSize: 13, fontStyle: 'italic', lineHeight: 19 },
+    editEntryBtn: { alignSelf: 'flex-start' },
+    editEntryText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+    section: { paddingHorizontal: 20, marginBottom: 24 },
+    sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '700', marginBottom: 12 },
+    friendsListened: { gap: 8 },
+    friendListenRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderRadius: 12, padding: 10 },
+    friendListenInfo: { flex: 1, gap: 4 },
+    friendListenName: { color: colors.text, fontWeight: '600', fontSize: 14 },
+    recommendBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: colors.accentDim, justifyContent: 'center', alignItems: 'center' },
+    trackRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider, gap: 14 },
+    trackNum: { color: colors.muted, fontSize: 13, width: 18, textAlign: 'right' },
+    trackName: { color: colors.text, fontSize: 14, flex: 1 },
+    trackDuration: { color: colors.muted, fontSize: 13 },
+    showMoreBtn: { paddingTop: 12, alignItems: 'center' },
+    showMoreText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  });
+}

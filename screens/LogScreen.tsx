@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, SafeAreaView, ActivityIndicator,
@@ -6,7 +6,8 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
@@ -16,6 +17,8 @@ import { useRatings } from '../store/ratings';
 type Mode = 'album' | 'song';
 
 export default function LogScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'Log'>>();
   const { logAlbum, logSong } = useRatings();
@@ -83,7 +86,7 @@ export default function LogScreen() {
       {/* ── Nav bar ── */}
       <View style={styles.nav}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navClose}>
-          <Ionicons name="close" size={22} color={Colors.text} />
+          <Ionicons name="close" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.navTitle}>Log {mode === 'album' ? 'Album' : 'Song'}</Text>
         <TouchableOpacity style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]} disabled={!canSave} onPress={handleSave}>
@@ -104,7 +107,7 @@ export default function LogScreen() {
               <Ionicons
                 name={m === 'album' ? 'disc-outline' : 'musical-note-outline'}
                 size={16}
-                color={mode === m ? Colors.primary : Colors.muted}
+                color={mode === m ? colors.primary : colors.muted}
               />
               <Text style={[styles.modeBtnText, mode === m && styles.modeBtnTextActive]}>
                 {m === 'album' ? 'Album' : 'Song'}
@@ -117,15 +120,15 @@ export default function LogScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>{mode === 'album' ? 'Album' : 'Song'}</Text>
           <View style={styles.searchBar}>
-            <Ionicons name="search" size={16} color={Colors.muted} />
+            <Ionicons name="search" size={16} color={colors.muted} />
             <TextInput
               style={styles.searchInput}
               placeholder={mode === 'album' ? 'Search albums...' : 'Search songs...'}
-              placeholderTextColor={Colors.muted}
+              placeholderTextColor={colors.muted}
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            {searching && <ActivityIndicator size="small" color={Colors.muted} />}
+            {searching && <ActivityIndicator size="small" color={colors.muted} />}
           </View>
 
           {results.length > 0 && (
@@ -184,7 +187,7 @@ export default function LogScreen() {
               onPress={() => { mode === 'album' ? setSelectedAlbum(null) : setSelectedTrack(null); setRating(0); }}
               hitSlop={8}
             >
-              <Ionicons name="close-circle" size={20} color={Colors.muted} />
+              <Ionicons name="close-circle" size={20} color={colors.muted} />
             </TouchableOpacity>
           </View>
         )}
@@ -202,7 +205,7 @@ export default function LogScreen() {
         {/* ── Liked ── */}
         <View style={styles.section}>
           <TouchableOpacity style={[styles.likeToggle, liked && styles.likeToggleActive]} onPress={() => setLiked(!liked)}>
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? Colors.primary : Colors.muted} />
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={20} color={liked ? colors.primary : colors.muted} />
             <Text style={[styles.likeText, liked && styles.likeTextActive]}>{liked ? 'Loved it' : 'Add to favorites'}</Text>
           </TouchableOpacity>
         </View>
@@ -213,7 +216,7 @@ export default function LogScreen() {
           <TextInput
             style={styles.reviewInput}
             placeholder="What did you think? Share your thoughts..."
-            placeholderTextColor={Colors.muted}
+            placeholderTextColor={colors.muted}
             value={review}
             onChangeText={setReview}
             multiline
@@ -228,49 +231,51 @@ export default function LogScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  nav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  navClose: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' },
-  navTitle: { color: Colors.text, fontSize: 17, fontWeight: '700' },
-  saveBtn: { backgroundColor: Colors.primary, paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20 },
-  saveBtnDisabled: { backgroundColor: Colors.surface },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  saveBtnTextDisabled: { color: Colors.muted },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 16 },
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    nav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+    navClose: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
+    navTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
+    saveBtn: { backgroundColor: colors.primary, paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20 },
+    saveBtnDisabled: { backgroundColor: colors.surface },
+    saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    saveBtnTextDisabled: { color: colors.muted },
+    scroll: { flex: 1 },
+    content: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 16 },
 
-  modeToggle: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 14, padding: 4, marginBottom: 24, borderWidth: 1, borderColor: Colors.border },
-  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },
-  modeBtnActive: { backgroundColor: Colors.primaryDim },
-  modeBtnText: { color: Colors.muted, fontSize: 14, fontWeight: '600' },
-  modeBtnTextActive: { color: Colors.primary },
+    modeToggle: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 14, padding: 4, marginBottom: 24, borderWidth: 1, borderColor: colors.border },
+    modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },
+    modeBtnActive: { backgroundColor: colors.primaryDim },
+    modeBtnText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+    modeBtnTextActive: { color: colors.primary },
 
-  section: { marginBottom: 24 },
-  label: { color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 10 },
-  optional: { color: Colors.muted, fontWeight: '400' },
+    section: { marginBottom: 24 },
+    label: { color: colors.text, fontSize: 14, fontWeight: '700', marginBottom: 10 },
+    optional: { color: colors.muted, fontWeight: '400' },
 
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderWidth: 1, borderColor: Colors.border },
-  searchInput: { flex: 1, color: Colors.text, fontSize: 14 },
-  searchResults: { backgroundColor: Colors.surface, borderRadius: 12, marginTop: 4, overflow: 'hidden', borderWidth: 1, borderColor: Colors.border },
-  searchResultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  resultText: { flex: 1 },
-  resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 13 },
-  resultArtist: { color: Colors.muted, fontSize: 12, marginTop: 1 },
+    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderWidth: 1, borderColor: colors.border },
+    searchInput: { flex: 1, color: colors.text, fontSize: 14 },
+    searchResults: { backgroundColor: colors.surface, borderRadius: 12, marginTop: 4, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+    searchResultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+    resultText: { flex: 1 },
+    resultTitle: { color: colors.text, fontWeight: '600', fontSize: 13 },
+    resultArtist: { color: colors.muted, fontSize: 12, marginTop: 1 },
 
-  selectedCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: Colors.primary + '40' },
-  selectedInfo: { flex: 1 },
-  selectedTitle: { color: Colors.text, fontWeight: '700', fontSize: 16 },
-  selectedArtist: { color: Colors.textSecondary, fontSize: 13, marginTop: 2 },
-  selectedMeta: { color: Colors.muted, fontSize: 12, marginTop: 2 },
+    selectedCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.surface, borderRadius: 14, padding: 14, marginBottom: 24, borderWidth: 1, borderColor: colors.primary + '40' },
+    selectedInfo: { flex: 1 },
+    selectedTitle: { color: colors.text, fontWeight: '700', fontSize: 16 },
+    selectedArtist: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+    selectedMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
 
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  ratingLabel: { color: Colors.accent, fontSize: 16, fontWeight: '700' },
-  ratingHint: { color: Colors.muted, fontSize: 12, marginTop: 6 },
-  likeToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: Colors.border },
-  likeToggleActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryDim },
-  likeText: { color: Colors.muted, fontSize: 14, fontWeight: '500' },
-  likeTextActive: { color: Colors.primary, fontWeight: '700' },
-  reviewInput: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, color: Colors.text, fontSize: 14, lineHeight: 21, minHeight: 120, borderWidth: 1, borderColor: Colors.border },
-  charCount: { color: Colors.muted, fontSize: 12, textAlign: 'right', marginTop: 6 },
-});
+    ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    ratingLabel: { color: colors.accent, fontSize: 16, fontWeight: '700' },
+    ratingHint: { color: colors.muted, fontSize: 12, marginTop: 6 },
+    likeToggle: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.border },
+    likeToggleActive: { borderColor: colors.primary, backgroundColor: colors.primaryDim },
+    likeText: { color: colors.muted, fontSize: 14, fontWeight: '500' },
+    likeTextActive: { color: colors.primary, fontWeight: '700' },
+    reviewInput: { backgroundColor: colors.surface, borderRadius: 14, padding: 14, color: colors.text, fontSize: 14, lineHeight: 21, minHeight: 120, borderWidth: 1, borderColor: colors.border },
+    charCount: { color: colors.muted, fontSize: 12, textAlign: 'right', marginTop: 6 },
+  });
+}

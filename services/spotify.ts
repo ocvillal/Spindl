@@ -116,6 +116,28 @@ function formatDuration(ms: number): string {
 
 // ─── Public API ──────────────────────────────────────────────────
 
+/**
+ * Batch-fetches Spotify album cover URLs for a list of tracks.
+ * Returns one cover string per input (empty string on miss).
+ * All searches run in parallel.
+ */
+export async function getSpotifyTrackCovers(
+  queries: Array<{ title: string; artist: string }>
+): Promise<string[]> {
+  const results = await Promise.allSettled(
+    queries.map(({ title, artist }) =>
+      spotifyFetch(
+        `/search?q=${encodeURIComponent(`${title} ${artist}`)}&type=track&limit=1&market=US`
+      )
+    )
+  );
+  return results.map((r) =>
+    r.status === 'fulfilled'
+      ? (r.value.tracks?.items?.[0]?.album?.images?.[0]?.url ?? '')
+      : ''
+  );
+}
+
 /** Search albums, tracks, and artists in one call. */
 export async function searchAll(query: string): Promise<SearchResults> {
   if (!query.trim()) return { albums: [], tracks: [], artists: [] };

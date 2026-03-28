@@ -2,6 +2,7 @@ import { Track, Album } from '../constants/mockData';
 import { supabase } from './supabase';
 import { fetchTopTracks } from './lastfm';
 import { getTopAlbums as deezerTopAlbums } from './deezer';
+import { getSpotifyTrackCovers } from './spotify';
 
 type Period = 'week' | 'month' | 'year';
 
@@ -22,6 +23,21 @@ function cutoffDate(period: Period): string {
   if (period === 'month') d.setDate(d.getDate() - 30);
   if (period === 'year')  d.setFullYear(d.getFullYear() - 1);
   return d.toISOString().split('T')[0];
+}
+
+// ─── Spotify Artwork Enrichment ──────────────────────────────────
+
+async function enrichWithSpotify(tracks: Track[]): Promise<Track[]> {
+  try {
+    const covers = await getSpotifyTrackCovers(
+      tracks.map((t) => ({ title: t.title, artist: t.artist }))
+    );
+    return tracks.map((t, i) =>
+      covers[i] ? { ...t, album: { ...t.album, cover: covers[i] } } : t
+    );
+  } catch {
+    return tracks; // artwork failure is non-fatal
+  }
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────
@@ -79,7 +95,7 @@ export async function getTopTracksForPeriod(period: Period, limit = 10): Promise
   // Cold start fallback
   if (!data || data.length === 0) {
     const tracks = await fetchTopTracks(limit);
-    return tracks.slice(0, limit);
+    return enrichWithSpotify(tracks.slice(0, limit));
   }
 
   // Aggregate playcount across weeks, then rank
@@ -93,10 +109,12 @@ export async function getTopTracksForPeriod(period: Period, limit = 10): Promise
     }
   }
 
-  return [...map.values()]
+  const ranked = [...map.values()]
     .sort((a, b) => b.total - a.total)
     .slice(0, limit)
     .map((v) => v.track);
+
+  return enrichWithSpotify(ranked);
 }
 
 /**

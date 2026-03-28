@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, Animated,
   PanResponder, TouchableOpacity, ActivityIndicator, Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import { Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
@@ -25,6 +26,8 @@ const SHEET_HEIGHT = 340;
 type Action = 'listened' | 'not_heard' | 'saved';
 
 export default function DiscoverScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { session } = useAuth();
   const { profile } = useProfile();
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -208,7 +211,7 @@ export default function DiscoverScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}><ActivityIndicator color={Colors.primary} size="large" /></View>
+        <View style={styles.center}><ActivityIndicator color={colors.primary} size="large" /></View>
       </SafeAreaView>
     );
   }
@@ -223,7 +226,7 @@ export default function DiscoverScreen() {
   if (!currentTrack) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}><ActivityIndicator color={Colors.primary} size="large" /></View>
+        <View style={styles.center}><ActivityIndicator color={colors.primary} size="large" /></View>
       </SafeAreaView>
     );
   }
@@ -314,12 +317,12 @@ export default function DiscoverScreen() {
             <Text style={[styles.actionLabel, { color: '#E57373' }]}>Never heard</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, styles.actionSave]} onPress={() => handleButton('saved')}>
-            <Ionicons name="bookmark" size={24} color={Colors.accent} />
-            <Text style={[styles.actionLabel, { color: Colors.accent }]}>Save</Text>
+            <Ionicons name="bookmark" size={24} color={colors.accent} />
+            <Text style={[styles.actionLabel, { color: colors.accent }]}>Save</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtn, styles.actionHeart]} onPress={() => handleButton('listened')}>
-            <Ionicons name="heart" size={28} color={Colors.primary} />
-            <Text style={[styles.actionLabel, { color: Colors.primary }]}>Heard it</Text>
+            <Ionicons name="heart" size={28} color={colors.primary} />
+            <Text style={[styles.actionLabel, { color: colors.primary }]}>Heard it</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -331,63 +334,65 @@ export default function DiscoverScreen() {
 
 const CARD_SIZE = SCREEN_WIDTH - 40;
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
-  header: { paddingHorizontal: 20, paddingTop: 8, marginBottom: 12 },
-  title: { color: Colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: Colors.muted, fontSize: 13, marginTop: 2 },
-  cardStack: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, overflow: 'hidden' },
-  card: {
-    position: 'absolute', width: CARD_SIZE,
-    backgroundColor: Colors.surface, borderRadius: 24, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08, shadowRadius: 12, elevation: 4,
-    borderWidth: 1, borderColor: Colors.border, gap: 10,
-  },
-  cardBehind: { transform: [{ scale: 0.95 }], opacity: 0.7 },
-  exitCard: { zIndex: 10 },
-  cardInfo: { gap: 4 },
-  cardTitle: { color: Colors.text, fontSize: 20, fontWeight: '800' },
-  cardArtist: { color: Colors.textSecondary, fontSize: 15, fontWeight: '600' },
-  cardAlbum: { color: Colors.muted, fontSize: 13 },
-  cardDuration: { color: Colors.muted, fontSize: 12 },
-  swipeIndicator: {
-    position: 'absolute', top: 24, zIndex: 10,
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 3,
-  },
-  heardIndicator: { right: 16, borderColor: Colors.primary, backgroundColor: Colors.primaryDim },
-  nopeIndicator: { left: 16, borderColor: '#E57373', backgroundColor: '#FDECEA' },
-  swipeIndicatorText: { fontWeight: '800', fontSize: 16, letterSpacing: 1, color: Colors.text },
-  actions: { flexDirection: 'row', justifyContent: 'center', gap: 20, paddingHorizontal: 20, paddingBottom: 8 },
-  actionBtn: {
-    alignItems: 'center', gap: 4, backgroundColor: Colors.surface,
-    borderRadius: 20, paddingHorizontal: 20, paddingVertical: 14,
-    borderWidth: 1, borderColor: Colors.border, flex: 1,
-  },
-  actionNope: { borderColor: '#FFCDD2' },
-  actionSave: { borderColor: Colors.border },
-  actionHeart: { borderColor: '#FFD9CC' },
-  actionLabel: { fontSize: 11, fontWeight: '700' },
-  counter: { color: Colors.muted, fontSize: 12, textAlign: 'center', paddingBottom: 8 },
-  dimOverlay: { backgroundColor: 'rgba(0,0,0,0.45)' },
-  ratingSheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: Colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 28, paddingBottom: 40, gap: 16, alignItems: 'center',
-  },
-  ratingTitle: { color: Colors.text, fontSize: 20, fontWeight: '800' },
-  ratingSubtitle: { color: Colors.muted, fontSize: 14 },
-  ratingActions: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 8 },
-  skipRatingBtn: {
-    flex: 1, backgroundColor: Colors.surface, borderRadius: 12,
-    paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: Colors.border,
-  },
-  skipRatingText: { color: Colors.muted, fontWeight: '600' },
-  saveRatingBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  saveRatingBtnDisabled: { opacity: 0.4 },
-  saveRatingText: { color: Colors.background, fontWeight: '800' },
-  emptyTitle: { color: Colors.text, fontSize: 18, fontWeight: '700' },
-  reloadBtn: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
-  reloadBtnText: { color: Colors.background, fontWeight: '700' },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+    header: { paddingHorizontal: 20, paddingTop: 8, marginBottom: 12 },
+    title: { color: colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+    subtitle: { color: colors.muted, fontSize: 13, marginTop: 2 },
+    cardStack: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, overflow: 'hidden' },
+    card: {
+      position: 'absolute', width: CARD_SIZE,
+      backgroundColor: colors.surface, borderRadius: 24, padding: 16,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08, shadowRadius: 12, elevation: 4,
+      borderWidth: 1, borderColor: colors.border, gap: 10,
+    },
+    cardBehind: { transform: [{ scale: 0.95 }], opacity: 0.7 },
+    exitCard: { zIndex: 10 },
+    cardInfo: { gap: 4 },
+    cardTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
+    cardArtist: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
+    cardAlbum: { color: colors.muted, fontSize: 13 },
+    cardDuration: { color: colors.muted, fontSize: 12 },
+    swipeIndicator: {
+      position: 'absolute', top: 24, zIndex: 10,
+      paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 3,
+    },
+    heardIndicator: { right: 16, borderColor: colors.primary, backgroundColor: colors.primaryDim },
+    nopeIndicator: { left: 16, borderColor: '#E57373', backgroundColor: '#FDECEA' },
+    swipeIndicatorText: { fontWeight: '800', fontSize: 16, letterSpacing: 1, color: colors.text },
+    actions: { flexDirection: 'row', justifyContent: 'center', gap: 20, paddingHorizontal: 20, paddingBottom: 8 },
+    actionBtn: {
+      alignItems: 'center', gap: 4, backgroundColor: colors.surface,
+      borderRadius: 20, paddingHorizontal: 20, paddingVertical: 14,
+      borderWidth: 1, borderColor: colors.border, flex: 1,
+    },
+    actionNope: { borderColor: '#FFCDD2' },
+    actionSave: { borderColor: colors.border },
+    actionHeart: { borderColor: '#FFD9CC' },
+    actionLabel: { fontSize: 11, fontWeight: '700' },
+    counter: { color: colors.muted, fontSize: 12, textAlign: 'center', paddingBottom: 8 },
+    dimOverlay: { backgroundColor: 'rgba(0,0,0,0.45)' },
+    ratingSheet: {
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      padding: 28, paddingBottom: 40, gap: 16, alignItems: 'center',
+    },
+    ratingTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
+    ratingSubtitle: { color: colors.muted, fontSize: 14 },
+    ratingActions: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 8 },
+    skipRatingBtn: {
+      flex: 1, backgroundColor: colors.surface, borderRadius: 12,
+      paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.border,
+    },
+    skipRatingText: { color: colors.muted, fontWeight: '600' },
+    saveRatingBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+    saveRatingBtnDisabled: { opacity: 0.4 },
+    saveRatingText: { color: colors.background, fontWeight: '800' },
+    emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+    reloadBtn: { backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
+    reloadBtnText: { color: colors.background, fontWeight: '700' },
+  });
+}

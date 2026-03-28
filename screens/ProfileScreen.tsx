@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import { MOCK_ALBUMS } from '../constants/mockData';
 import { useRatings, AlbumEntry, SongEntry } from '../store/ratings';
 import { useProfile } from '../store/profile';
@@ -17,6 +18,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type ProfileTab = 'diary' | 'reviews' | 'lists' | 'favorites';
 
 function ProfileAvatar({ name, size }: { name: string; size: number }) {
+  const { colors } = useTheme();
   const initials = name
     .split(' ')
     .map((w) => w[0])
@@ -24,13 +26,15 @@ function ProfileAvatar({ name, size }: { name: string; size: number }) {
     .join('')
     .toUpperCase();
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: Colors.accent, justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.accent, justifyContent: 'center', alignItems: 'center' }}>
       <Text style={{ color: '#fff', fontSize: size * 0.38, fontWeight: '700' }}>{initials}</Text>
     </View>
   );
 }
 
 export default function ProfileScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<Nav>();
   const { signOut } = useAuth();
   const { profile } = useProfile();
@@ -56,11 +60,11 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileHeader}>
-          <LinearGradient colors={['#3B2A5C', Colors.background]} style={styles.headerGradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+          <LinearGradient colors={[colors.background, colors.background]} style={styles.headerGradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
           <View style={styles.topRow}>
             <View />
             <TouchableOpacity style={styles.settingsBtn} onPress={confirmSignOut}>
-              <Ionicons name="log-out-outline" size={22} color={Colors.text} />
+              <Ionicons name="log-out-outline" size={22} color={colors.text} />
             </TouchableOpacity>
           </View>
           <View style={styles.avatarSection}>
@@ -95,7 +99,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.addFavBtn}>
-              <Ionicons name="add" size={24} color={Colors.muted} />
+              <Ionicons name="add" size={24} color={colors.muted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -113,7 +117,7 @@ export default function ProfileScreen() {
         {activeTab === 'diary' && (
           entries.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="musical-notes-outline" size={40} color={Colors.muted} />
+              <Ionicons name="musical-notes-outline" size={40} color={colors.muted} />
               <Text style={styles.emptyText}>Nothing logged yet</Text>
               <Text style={styles.emptyHint}>Tap + on the home screen to log an album or song</Text>
             </View>
@@ -162,7 +166,7 @@ export default function ProfileScreen() {
         {activeTab === 'reviews' && (
           entries.filter((e) => e.review).length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="create-outline" size={40} color={Colors.muted} />
+              <Ionicons name="create-outline" size={40} color={colors.muted} />
               <Text style={styles.emptyText}>No reviews yet</Text>
             </View>
           ) : (
@@ -217,11 +221,11 @@ export default function ProfileScreen() {
                   <Text style={styles.listTitle}>{list.title}</Text>
                   <Text style={styles.listCount}>{list.count} albums</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={Colors.muted} />
+                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.newListBtn}>
-              <Ionicons name="add" size={18} color={Colors.primary} />
+              <Ionicons name="add" size={18} color={colors.primary} />
               <Text style={styles.newListText}>New List</Text>
             </TouchableOpacity>
           </View>
@@ -230,7 +234,7 @@ export default function ProfileScreen() {
         {activeTab === 'favorites' && (
           entries.filter((e) => e.liked).length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="heart-outline" size={40} color={Colors.muted} />
+              <Ionicons name="heart-outline" size={40} color={colors.muted} />
               <Text style={styles.emptyText}>No favorites yet</Text>
               <Text style={styles.emptyHint}>Heart an album or song when logging it</Text>
             </View>
@@ -255,60 +259,62 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
-  content: { paddingBottom: 32 },
-  profileHeader: { paddingHorizontal: 16, paddingBottom: 20, position: 'relative' },
-  headerGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 180 },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, marginBottom: 16 },
-  settingsBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },
-  avatarSection: { alignItems: 'center', gap: 6, marginBottom: 20 },
-  avatarWrap: { position: 'relative', marginBottom: 4 },
-  editAvatarBtn: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: Colors.background },
-  displayName: { color: Colors.text, fontSize: 22, fontWeight: '800' },
-  username: { color: Colors.muted, fontSize: 14 },
-  bio: { color: Colors.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 2 },
-  statsRow: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16, overflow: 'hidden' },
-  statItem: { flex: 1, alignItems: 'center', paddingVertical: 14, position: 'relative' },
-  statValue: { color: Colors.text, fontSize: 20, fontWeight: '800' },
-  statLabel: { color: Colors.muted, fontSize: 11, marginTop: 2 },
-  statDivider: { position: 'absolute', right: 0, top: '20%', height: '60%', width: 1, backgroundColor: Colors.border },
-  section: { paddingHorizontal: 16, marginBottom: 20 },
-  sectionTitle: { color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  favsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  addFavBtn: { width: 72, height: 72, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-  tabScroll: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 16 },
-  tabChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
-  tabChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  tabChipText: { color: Colors.muted, fontSize: 13, fontWeight: '600' },
-  tabChipTextActive: { color: Colors.primary },
-  diaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },
-  diaryGridItem: { gap: 5 },
-  gridCoverWrap: { position: 'relative' },
-  ratingBadge: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  ratingBadgeText: { color: Colors.star, fontSize: 11, fontWeight: '700' },
-  diaryItemTitle: { color: Colors.textSecondary, fontSize: 11, width: 100 },
-  reviewsList: { paddingHorizontal: 16, gap: 8 },
-  reviewRow: { flexDirection: 'row', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, padding: 12 },
-  reviewContent: { flex: 1, gap: 4 },
-  reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  reviewTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  reviewTitle: { color: Colors.text, fontWeight: '600', fontSize: 13, flexShrink: 1 },
-  songBadge: { backgroundColor: Colors.primaryDim, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  songBadgeText: { color: Colors.primary, fontSize: 10, fontWeight: '600' },
-  reviewText: { color: Colors.textSecondary, fontSize: 12, lineHeight: 17, fontStyle: 'italic' },
-  reviewDate: { color: Colors.muted, fontSize: 11 },
-  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 8, paddingHorizontal: 32 },
-  emptyText: { color: Colors.muted, fontSize: 15, fontWeight: '600' },
-  emptyHint: { color: Colors.muted, fontSize: 13, textAlign: 'center', opacity: 0.7 },
-  listsSection: { paddingHorizontal: 16, gap: 8 },
-  listRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, padding: 12, gap: 12 },
-  listCoverStrip: { width: 80, height: 44, position: 'relative' },
-  listCoverThumb: { position: 'absolute', top: 0 },
-  listInfo: { flex: 1, gap: 3 },
-  listTitle: { color: Colors.text, fontWeight: '600', fontSize: 14 },
-  listCount: { color: Colors.muted, fontSize: 12 },
-  newListBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.border, borderStyle: 'dashed', marginTop: 4 },
-  newListText: { color: Colors.primary, fontSize: 14, fontWeight: '600' },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    scroll: { flex: 1 },
+    content: { paddingBottom: 32 },
+    profileHeader: { paddingHorizontal: 16, paddingBottom: 20, position: 'relative' },
+    headerGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 180 },
+    topRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, marginBottom: 16 },
+    settingsBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },
+    avatarSection: { alignItems: 'center', gap: 6, marginBottom: 20 },
+    avatarWrap: { position: 'relative', marginBottom: 4 },
+    editAvatarBtn: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.background },
+    displayName: { color: colors.text, fontSize: 22, fontWeight: '800' },
+    username: { color: colors.muted, fontSize: 14 },
+    bio: { color: colors.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 2 },
+    statsRow: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' },
+    statItem: { flex: 1, alignItems: 'center', paddingVertical: 14, position: 'relative' },
+    statValue: { color: colors.text, fontSize: 20, fontWeight: '800' },
+    statLabel: { color: colors.muted, fontSize: 11, marginTop: 2 },
+    statDivider: { position: 'absolute', right: 0, top: '20%', height: '60%', width: 1, backgroundColor: colors.border },
+    section: { paddingHorizontal: 16, marginBottom: 20 },
+    sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 12 },
+    favsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+    addFavBtn: { width: 72, height: 72, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+    tabScroll: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 16 },
+    tabChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+    tabChipActive: { backgroundColor: colors.primaryDim, borderColor: colors.primary },
+    tabChipText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+    tabChipTextActive: { color: colors.primary },
+    diaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },
+    diaryGridItem: { gap: 5 },
+    gridCoverWrap: { position: 'relative' },
+    ratingBadge: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    ratingBadgeText: { color: colors.star, fontSize: 11, fontWeight: '700' },
+    diaryItemTitle: { color: colors.textSecondary, fontSize: 11, width: 100 },
+    reviewsList: { paddingHorizontal: 16, gap: 8 },
+    reviewRow: { flexDirection: 'row', gap: 12, backgroundColor: colors.surface, borderRadius: 14, padding: 12 },
+    reviewContent: { flex: 1, gap: 4 },
+    reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    reviewTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+    reviewTitle: { color: colors.text, fontWeight: '600', fontSize: 13, flexShrink: 1 },
+    songBadge: { backgroundColor: colors.primaryDim, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+    songBadgeText: { color: colors.primary, fontSize: 10, fontWeight: '600' },
+    reviewText: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, fontStyle: 'italic' },
+    reviewDate: { color: colors.muted, fontSize: 11 },
+    emptyState: { alignItems: 'center', paddingVertical: 48, gap: 8, paddingHorizontal: 32 },
+    emptyText: { color: colors.muted, fontSize: 15, fontWeight: '600' },
+    emptyHint: { color: colors.muted, fontSize: 13, textAlign: 'center', opacity: 0.7 },
+    listsSection: { paddingHorizontal: 16, gap: 8 },
+    listRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 14, padding: 12, gap: 12 },
+    listCoverStrip: { width: 80, height: 44, position: 'relative' },
+    listCoverThumb: { position: 'absolute', top: 0 },
+    listInfo: { flex: 1, gap: 3 },
+    listTitle: { color: colors.text, fontWeight: '600', fontSize: 14 },
+    listCount: { color: colors.muted, fontSize: 12 },
+    newListBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', marginTop: 4 },
+    newListText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  });
+}

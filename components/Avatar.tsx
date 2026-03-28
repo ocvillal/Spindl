@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { User } from '@/constants/mockData';
-import { Colors } from '@/constants/colors';
+import { useTheme } from '@/store/theme';
+import { AppTheme } from '@/constants/themes';
 
 interface Props {
   user: User;
@@ -10,6 +11,8 @@ interface Props {
 }
 
 export default function Avatar({ user, size = 36, showOnline = false }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const fontSize = size * 0.38;
   const dotSize = size * 0.3;
 
@@ -46,20 +49,22 @@ export default function Avatar({ user, size = 36, showOnline = false }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  avatar: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  initials: {
-    color: '#fff',
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  onlineDot: {
-    position: 'absolute',
-    backgroundColor: Colors.online,
-    borderWidth: 2,
-    borderColor: Colors.background,
-  },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    avatar: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    initials: {
+      color: '#fff',
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+    onlineDot: {
+      position: 'absolute',
+      backgroundColor: colors.online,
+      borderWidth: 2,
+      borderColor: colors.background,
+    },
+  });
+}

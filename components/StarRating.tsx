@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '@/constants/colors';
+import { useTheme } from '@/store/theme';
+import { AppTheme } from '@/constants/themes';
 
 interface Props {
   rating: number;
@@ -11,6 +12,8 @@ interface Props {
 }
 
 export default function StarRating({ rating, size = 14, interactive = false, onRate }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const stars = [1, 2, 3, 4, 5];
 
   return (
@@ -23,7 +26,7 @@ export default function StarRating({ rating, size = 14, interactive = false, onR
         if (interactive) {
           return (
             <TouchableOpacity key={star} onPress={() => onRate?.(star)} hitSlop={6}>
-              <Ionicons name={iconName} size={size} color={filled || half ? Colors.star : Colors.starEmpty} />
+              <Ionicons name={iconName} size={size} color={filled || half ? colors.star : colors.starEmpty} />
             </TouchableOpacity>
           );
         }
@@ -33,7 +36,7 @@ export default function StarRating({ rating, size = 14, interactive = false, onR
             key={star}
             name={iconName}
             size={size}
-            color={filled || half ? Colors.star : Colors.starEmpty}
+            color={filled || half ? colors.star : colors.starEmpty}
           />
         );
       })}
@@ -41,9 +44,11 @@ export default function StarRating({ rating, size = 14, interactive = false, onR
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: 'row',
+      gap: 2,
+    },
+  });
+}

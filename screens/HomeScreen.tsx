@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   SafeAreaView, ActivityIndicator,
@@ -6,7 +6,8 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import {
   MOCK_USERS, MOCK_ALBUM_REVIEWS, MOCK_SONG_REVIEWS,
   Album, Track, AlbumReview, SongReview,
@@ -19,7 +20,6 @@ import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type HomeTab = 'albums' | 'songs' | 'albumReviews' | 'songReviews' | null;
-type Period = 'week' | 'month' | 'year';
 
 const TABS: { key: Exclude<HomeTab, null>; label: string }[] = [
   { key: 'albums', label: 'Albums' },
@@ -28,36 +28,27 @@ const TABS: { key: Exclude<HomeTab, null>; label: string }[] = [
   { key: 'songReviews', label: 'Song Reviews' },
 ];
 
-const PERIODS: { key: Period; label: string }[] = [
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
-  { key: 'year', label: 'Year' },
-];
-
 export default function HomeScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<Nav>();
   const [activeTab, setActiveTab] = useState<HomeTab>(null);
-  const [period, setPeriod] = useState<Period>('week');
   const [trendingAlbums, setTrendingAlbums] = useState<Album[]>([]);
   const [topTracks, setTopTracks] = useState<Track[]>([]);
   const [loadingCharts, setLoadingCharts] = useState(true);
   const me = MOCK_USERS[0];
 
   useEffect(() => {
-    seedWeeklyChart().catch(() => {}); // fire-and-forget, doesn't block UI
-    loadCharts(period);
+    seedWeeklyChart().catch(() => {});
+    loadCharts();
   }, []);
 
-  useEffect(() => {
-    loadCharts(period);
-  }, [period]);
-
-  async function loadCharts(p: Period) {
+  async function loadCharts() {
     setLoadingCharts(true);
     try {
       const [albums, tracks] = await Promise.all([
-        getTopAlbumsForPeriod(p, 10),
-        getTopTracksForPeriod(p, 10),
+        getTopAlbumsForPeriod('week', 10),
+        getTopTracksForPeriod('week', 10),
       ]);
       setTrendingAlbums(albums);
       setTopTracks(tracks);
@@ -75,8 +66,6 @@ export default function HomeScreen() {
   const showAlbumReviews = activeTab === null || activeTab === 'albumReviews';
   const showSongReviews = activeTab === null || activeTab === 'songReviews';
 
-  const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? '';
-
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -89,8 +78,11 @@ export default function HomeScreen() {
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.iconBtn}>
-              <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+              <Ionicons name="notifications-outline" size={22} color={colors.text} />
               <View style={styles.notifDot} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Settings')}>
+              <Ionicons name="settings-outline" size={22} color={colors.text} />
             </TouchableOpacity>
             <Avatar user={me} size={34} />
           </View>
@@ -101,32 +93,10 @@ export default function HomeScreen() {
           {trendingAlbums[0] && <AlbumCover album={trendingAlbums[0]} size={40} borderRadius={10} />}
           <Text style={styles.logCtaText}>What did you listen to?</Text>
           <View style={styles.logCtaBtn}>
-            <Ionicons name="add" size={20} color={Colors.background} />
+            <Ionicons name="add" size={20} color={colors.background} />
           </View>
         </TouchableOpacity>
 
-        {/* ── Period Picker — segmented control ── */}
-        <View style={styles.periodRow}>
-          <Text style={styles.periodLabel}>Top charts</Text>
-          <View style={styles.segmented}>
-            {PERIODS.map((p, i) => (
-              <TouchableOpacity
-                key={p.key}
-                style={[
-                  styles.segment,
-                  i === 0 && styles.segmentFirst,
-                  i === PERIODS.length - 1 && styles.segmentLast,
-                  period === p.key && styles.segmentActive,
-                ]}
-                onPress={() => setPeriod(p.key)}
-              >
-                <Text style={[styles.segmentText, period === p.key && styles.segmentTextActive]}>
-                  {p.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
 
         {/* ── Tab Chips ── */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
@@ -145,7 +115,7 @@ export default function HomeScreen() {
         {showAlbums && (
           <View style={styles.section}>
             <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Top Albums · {periodLabel}</Text>
+              <Text style={styles.sectionTitle}>Top Albums</Text>
               {activeTab === null && trendingAlbums.length > 0 && (
                 <TouchableOpacity onPress={() => toggleTab('albums')}>
                   <Text style={styles.seeAll}>See all</Text>
@@ -154,7 +124,7 @@ export default function HomeScreen() {
             </View>
 
             {loadingCharts ? (
-              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
             ) : activeTab === null ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
                 {trendingAlbums.map((album) => (
@@ -183,7 +153,7 @@ export default function HomeScreen() {
         {showSongs && (
           <View style={styles.section}>
             <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Top Songs · {periodLabel}</Text>
+              <Text style={styles.sectionTitle}>Top Singles</Text>
               {activeTab === null && topTracks.length > 0 && (
                 <TouchableOpacity onPress={() => toggleTab('songs')}>
                   <Text style={styles.seeAll}>See all</Text>
@@ -192,7 +162,7 @@ export default function HomeScreen() {
             </View>
 
             {loadingCharts ? (
-              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
             ) : (
               <View style={styles.songsCard}>
                 {(activeTab === null ? topTracks.slice(0, 5) : topTracks).map((track, idx) => (
@@ -238,7 +208,7 @@ export default function HomeScreen() {
                     </View>
                   </View>
                   <View style={styles.reviewLikesRow}>
-                    <Ionicons name="heart" size={13} color={Colors.primary} />
+                    <Ionicons name="heart" size={13} color={colors.primary} />
                     <Text style={styles.reviewLikesCount}>{review.likes}</Text>
                   </View>
                 </View>
@@ -278,7 +248,7 @@ export default function HomeScreen() {
                     </View>
                   </View>
                   <View style={styles.reviewLikesRow}>
-                    <Ionicons name="heart" size={13} color={Colors.primary} />
+                    <Ionicons name="heart" size={13} color={colors.primary} />
                     <Text style={styles.reviewLikesCount}>{review.likes}</Text>
                   </View>
                 </View>
@@ -300,111 +270,113 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
-  content: { paddingBottom: 32, paddingTop: 8 },
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    scroll: { flex: 1 },
+    content: { paddingBottom: 32, paddingTop: 8 },
 
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 16, paddingHorizontal: 16, paddingTop: 4,
-  },
-  appName: { color: Colors.primary, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: Colors.muted, fontSize: 12, marginTop: 1 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconBtn: { position: 'relative' },
-  notifDot: {
-    position: 'absolute', top: -1, right: -1,
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: Colors.primary, borderWidth: 1.5, borderColor: Colors.background,
-  },
+    header: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      marginBottom: 16, paddingHorizontal: 16, paddingTop: 4,
+    },
+    appName: { color: colors.primary, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+    subtitle: { color: colors.muted, fontSize: 12, marginTop: 1 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    iconBtn: { position: 'relative' },
+    notifDot: {
+      position: 'absolute', top: -1, right: -1,
+      width: 8, height: 8, borderRadius: 4,
+      backgroundColor: colors.primary, borderWidth: 1.5, borderColor: colors.background,
+    },
 
-  logCta: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
-    borderRadius: 14, padding: 10, gap: 12, marginBottom: 16, marginHorizontal: 16,
-  },
-  logCtaText: { flex: 1, color: Colors.muted, fontSize: 14 },
-  logCtaBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
-  },
+    logCta: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface,
+      borderRadius: 14, padding: 10, gap: 12, marginBottom: 16, marginHorizontal: 16,
+    },
+    logCtaText: { flex: 1, color: colors.muted, fontSize: 14 },
+    logCtaBtn: {
+      width: 32, height: 32, borderRadius: 16,
+      backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center',
+    },
 
-  // Period picker
-  periodRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, marginBottom: 14,
-  },
-  periodLabel: { color: Colors.text, fontSize: 15, fontWeight: '700' },
-  segmented: {
-    flexDirection: 'row',
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  segment: {
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRightWidth: 1, borderRightColor: Colors.border,
-  },
-  segmentFirst: { borderLeftWidth: 0 },
-  segmentLast: { borderRightWidth: 0 },
-  segmentActive: { backgroundColor: Colors.primary },
-  segmentText: { color: Colors.muted, fontSize: 13, fontWeight: '600' },
-  segmentTextActive: { color: Colors.background, fontWeight: '700' },
+    // Period picker
+    periodRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 16, marginBottom: 14,
+    },
+    periodLabel: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    segmented: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    segment: {
+      paddingHorizontal: 14, paddingVertical: 7,
+      borderRightWidth: 1, borderRightColor: colors.border,
+    },
+    segmentFirst: { borderLeftWidth: 0 },
+    segmentLast: { borderRightWidth: 0 },
+    segmentActive: { backgroundColor: colors.primary },
+    segmentText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+    segmentTextActive: { color: colors.background, fontWeight: '700' },
 
-  tabBar: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 20 },
-  tabChip: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
-  },
-  tabChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  tabText: { color: Colors.muted, fontSize: 13, fontWeight: '600' },
-  tabTextActive: { color: Colors.primary },
+    tabBar: { gap: 8, paddingHorizontal: 16, paddingRight: 24, marginBottom: 20 },
+    tabChip: {
+      paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    tabChipActive: { backgroundColor: colors.primaryDim, borderColor: colors.primary },
+    tabText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+    tabTextActive: { color: colors.primary },
 
-  section: { marginBottom: 28, paddingHorizontal: 16 },
-  sectionRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14,
-  },
-  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '800', letterSpacing: -0.2 },
-  seeAll: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
+    section: { marginBottom: 28, paddingHorizontal: 16 },
+    sectionRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14,
+    },
+    sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800', letterSpacing: -0.2 },
+    seeAll: { color: colors.primary, fontSize: 13, fontWeight: '600' },
 
-  hScroll: { gap: 12, paddingRight: 4 },
-  albumCard: { width: 134, gap: 6 },
-  albumCardTitle: { color: Colors.text, fontSize: 13, fontWeight: '700' },
-  albumCardArtist: { color: Colors.muted, fontSize: 12, marginBottom: 2 },
-  albumsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  albumGridItem: { width: '47%', gap: 6 },
+    hScroll: { gap: 12, paddingRight: 4 },
+    albumCard: { width: 134, gap: 6 },
+    albumCardTitle: { color: colors.text, fontSize: 13, fontWeight: '700' },
+    albumCardArtist: { color: colors.muted, fontSize: 12, marginBottom: 2 },
+    albumsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+    albumGridItem: { width: '47%', gap: 6 },
 
-  songsCard: {
-    backgroundColor: Colors.surface, borderRadius: 16, overflow: 'hidden',
-    borderWidth: 1, borderColor: Colors.border,
-  },
-  songRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
-  songRowBorder: { borderTopWidth: 1, borderTopColor: Colors.divider },
-  songRank: { color: Colors.muted, fontSize: 14, fontWeight: '700', width: 20, textAlign: 'center' },
-  songRankTop: { color: Colors.primary },
-  songInfo: { flex: 1 },
-  songTitle: { color: Colors.text, fontSize: 14, fontWeight: '600' },
-  songArtist: { color: Colors.muted, fontSize: 12, marginTop: 2 },
-  songDuration: { color: Colors.muted, fontSize: 11 },
+    songsCard: {
+      backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden',
+      borderWidth: 1, borderColor: colors.border,
+    },
+    songRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
+    songRowBorder: { borderTopWidth: 1, borderTopColor: colors.divider },
+    songRank: { color: colors.muted, fontSize: 14, fontWeight: '700', width: 20, textAlign: 'center' },
+    songRankTop: { color: colors.primary },
+    songInfo: { flex: 1 },
+    songTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    songArtist: { color: colors.muted, fontSize: 12, marginTop: 2 },
+    songDuration: { color: colors.muted, fontSize: 11 },
 
-  reviewCard: {
-    backgroundColor: Colors.surface, borderRadius: 16, padding: 14,
-    marginBottom: 10, gap: 12, borderWidth: 1, borderColor: Colors.border,
-  },
-  reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  reviewUser: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  reviewUserName: { color: Colors.text, fontWeight: '700', fontSize: 13 },
-  reviewDate: { color: Colors.muted, fontSize: 11, marginTop: 1 },
-  reviewLikesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  reviewLikesCount: { color: Colors.muted, fontSize: 12 },
-  reviewSubject: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surfaceAlt, borderRadius: 10, padding: 10,
-  },
-  reviewSubjectInfo: { flex: 1, gap: 3 },
-  reviewSubjectTitle: { color: Colors.text, fontWeight: '700', fontSize: 14 },
-  reviewSubjectSub: { color: Colors.textSecondary, fontSize: 12 },
-  reviewText: { color: Colors.textSecondary, fontSize: 13, fontStyle: 'italic', lineHeight: 20 },
-});
+    reviewCard: {
+      backgroundColor: colors.surface, borderRadius: 16, padding: 14,
+      marginBottom: 10, gap: 12, borderWidth: 1, borderColor: colors.border,
+    },
+    reviewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    reviewUser: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    reviewUserName: { color: colors.text, fontWeight: '700', fontSize: 13 },
+    reviewDate: { color: colors.muted, fontSize: 11, marginTop: 1 },
+    reviewLikesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    reviewLikesCount: { color: colors.muted, fontSize: 12 },
+    reviewSubject: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: colors.surfaceAlt, borderRadius: 10, padding: 10,
+    },
+    reviewSubjectInfo: { flex: 1, gap: 3 },
+    reviewSubjectTitle: { color: colors.text, fontWeight: '700', fontSize: 14 },
+    reviewSubjectSub: { color: colors.textSecondary, fontSize: 12 },
+    reviewText: { color: colors.textSecondary, fontSize: 13, fontStyle: 'italic', lineHeight: 20 },
+  });
+}

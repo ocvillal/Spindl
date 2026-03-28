@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,10 +13,12 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/colors';
+import { useTheme } from '../store/theme';
+import { AppTheme } from '../constants/themes';
 import { Album } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
-import { Artist, SearchResults, searchAll, getNewReleases } from '../services/spotify';
+import { Artist, SearchResults, searchAll } from '../services/spotify';
+import { getTopAlbums } from '../services/deezer';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -30,6 +32,8 @@ const FILTERS: { key: FilterType; label: string }[] = [
 ];
 
 export default function SearchScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<Nav>();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -41,7 +45,7 @@ export default function SearchScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    getNewReleases(10).then(setTrending).catch(() => {});
+    getTopAlbums(10).then(setTrending).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -87,11 +91,11 @@ export default function SearchScreen() {
 
         {/* ── Search bar ── */}
         <View style={[styles.searchBar, focused && styles.searchBarFocused]}>
-          <Ionicons name="search" size={18} color={Colors.muted} />
+          <Ionicons name="search" size={18} color={colors.muted} />
           <TextInput
             style={styles.searchInput}
             placeholder="Albums, artists, songs..."
-            placeholderTextColor={Colors.muted}
+            placeholderTextColor={colors.muted}
             value={query}
             onChangeText={(t) => { setQuery(t); setFilter('all'); }}
             onFocus={() => setFocused(true)}
@@ -100,7 +104,7 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')}>
-              <Ionicons name="close-circle" size={18} color={Colors.muted} />
+              <Ionicons name="close-circle" size={18} color={colors.muted} />
             </TouchableOpacity>
           )}
         </View>
@@ -124,16 +128,16 @@ export default function SearchScreen() {
 
             {searching ? (
               <View style={styles.emptyState}>
-                <ActivityIndicator color={Colors.primary} />
+                <ActivityIndicator color={colors.primary} />
               </View>
             ) : searchError ? (
               <View style={styles.emptyState}>
-                <Ionicons name="alert-circle-outline" size={40} color={Colors.muted} />
+                <Ionicons name="alert-circle-outline" size={40} color={colors.muted} />
                 <Text style={styles.emptyText}>{searchError}</Text>
               </View>
             ) : totalResults === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="musical-notes-outline" size={40} color={Colors.muted} />
+                <Ionicons name="musical-notes-outline" size={40} color={colors.muted} />
                 <Text style={styles.emptyText}>Nothing found for "{query}"</Text>
               </View>
             ) : (
@@ -154,13 +158,13 @@ export default function SearchScreen() {
                             <Text style={styles.resultTitle} numberOfLines={1}>{album.title}</Text>
                             <Text style={styles.resultSub} numberOfLines={1}>{album.artist} · {album.year}</Text>
                           </View>
-                          <Ionicons name="chevron-forward" size={18} color={Colors.muted} />
+                          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.logBtn}
                           onPress={() => navigation.navigate('Log', { album })}
                         >
-                          <Ionicons name="add" size={18} color={Colors.primary} />
+                          <Ionicons name="add" size={18} color={colors.primary} />
                         </TouchableOpacity>
                       </View>
                     ))}
@@ -189,7 +193,7 @@ export default function SearchScreen() {
                           style={styles.logBtn}
                           onPress={() => navigation.navigate('Log', { track })}
                         >
-                          <Ionicons name="add" size={18} color={Colors.primary} />
+                          <Ionicons name="add" size={18} color={colors.primary} />
                         </TouchableOpacity>
                       </View>
                     ))}
@@ -216,7 +220,7 @@ export default function SearchScreen() {
                             {artist.followersCount > 0 ? ` · ${formatFollowers(artist.followersCount)}` : ''}
                           </Text>
                         </View>
-                        <Ionicons name="person" size={16} color={Colors.muted} />
+                        <Ionicons name="person" size={16} color={colors.muted} />
                       </View>
                     ))}
                   </View>
@@ -231,7 +235,7 @@ export default function SearchScreen() {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>New Releases</Text>
-                  <Ionicons name="flame" size={16} color={Colors.accent} />
+                  <Ionicons name="flame" size={16} color={colors.accent} />
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingScroll}>
                   {trending.map((album, idx) => (
@@ -265,59 +269,61 @@ function formatFollowers(n: number): string {
   return `${n}`;
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
-  title: { color: Colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16 },
-  searchBar: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
-    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10,
-    marginBottom: 16, borderWidth: 1, borderColor: Colors.border,
-  },
-  searchBarFocused: { borderColor: Colors.primary },
-  searchInput: { flex: 1, color: Colors.text, fontSize: 15 },
-  filterScroll: { gap: 8, paddingRight: 8, marginBottom: 16 },
-  filterChip: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
-  },
-  filterChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  filterText: { color: Colors.muted, fontSize: 13, fontWeight: '500' },
-  filterTextActive: { color: Colors.primary, fontWeight: '700' },
-  section: { marginBottom: 24 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
-  sectionTitle: { color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 10 },
-  resultRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 14, marginBottom: 8, overflow: 'hidden',
-  },
-  resultRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
-  logBtn: {
-    paddingHorizontal: 14, paddingVertical: 12,
-    borderLeftWidth: 1, borderLeftColor: Colors.border,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  resultInfo: { flex: 1, gap: 3 },
-  resultTitle: { color: Colors.text, fontWeight: '600', fontSize: 14 },
-  resultSub: { color: Colors.textSecondary, fontSize: 12 },
-  duration: { color: Colors.muted, fontSize: 12 },
-  artistImage: { width: 50, height: 50, borderRadius: 25 },
-  artistImagePlaceholder: {
-    width: 50, height: 50, borderRadius: 25,
-    backgroundColor: Colors.surfaceAlt, justifyContent: 'center', alignItems: 'center',
-  },
-  artistInitial: { color: Colors.text, fontSize: 20, fontWeight: '700' },
-  trendingScroll: { gap: 14, paddingRight: 8 },
-  trendingCard: { width: 130, gap: 6, position: 'relative' },
-  trendingRank: {
-    position: 'absolute', top: 8, left: 8, zIndex: 1,
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center',
-  },
-  trendingRankText: { color: Colors.text, fontSize: 11, fontWeight: '700' },
-  trendingTitle: { color: Colors.text, fontSize: 13, fontWeight: '600' },
-  trendingArtist: { color: Colors.muted, fontSize: 12 },
-  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 12 },
-  emptyText: { color: Colors.muted, fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
-});
+function makeStyles(colors: AppTheme) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.background },
+    scroll: { flex: 1 },
+    content: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
+    title: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16 },
+    searchBar: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface,
+      borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10,
+      marginBottom: 16, borderWidth: 1, borderColor: colors.border,
+    },
+    searchBarFocused: { borderColor: colors.primary },
+    searchInput: { flex: 1, color: colors.text, fontSize: 15 },
+    filterScroll: { gap: 8, paddingRight: 8, marginBottom: 16 },
+    filterChip: {
+      paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    filterChipActive: { backgroundColor: colors.primaryDim, borderColor: colors.primary },
+    filterText: { color: colors.muted, fontSize: 13, fontWeight: '500' },
+    filterTextActive: { color: colors.primary, fontWeight: '700' },
+    section: { marginBottom: 24 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
+    sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '700', marginBottom: 10 },
+    resultRow: {
+      flexDirection: 'row', alignItems: 'center',
+      backgroundColor: colors.surface, borderRadius: 14, marginBottom: 8, overflow: 'hidden',
+    },
+    resultRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
+    logBtn: {
+      paddingHorizontal: 14, paddingVertical: 12,
+      borderLeftWidth: 1, borderLeftColor: colors.border,
+      justifyContent: 'center', alignItems: 'center',
+    },
+    resultInfo: { flex: 1, gap: 3 },
+    resultTitle: { color: colors.text, fontWeight: '600', fontSize: 14 },
+    resultSub: { color: colors.textSecondary, fontSize: 12 },
+    duration: { color: colors.muted, fontSize: 12 },
+    artistImage: { width: 50, height: 50, borderRadius: 25 },
+    artistImagePlaceholder: {
+      width: 50, height: 50, borderRadius: 25,
+      backgroundColor: colors.surfaceAlt, justifyContent: 'center', alignItems: 'center',
+    },
+    artistInitial: { color: colors.text, fontSize: 20, fontWeight: '700' },
+    trendingScroll: { gap: 14, paddingRight: 8 },
+    trendingCard: { width: 130, gap: 6, position: 'relative' },
+    trendingRank: {
+      position: 'absolute', top: 8, left: 8, zIndex: 1,
+      width: 22, height: 22, borderRadius: 11,
+      backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center',
+    },
+    trendingRankText: { color: colors.text, fontSize: 11, fontWeight: '700' },
+    trendingTitle: { color: colors.text, fontSize: 13, fontWeight: '600' },
+    trendingArtist: { color: colors.muted, fontSize: 12 },
+    emptyState: { alignItems: 'center', paddingVertical: 48, gap: 12 },
+    emptyText: { color: colors.muted, fontSize: 14, textAlign: 'center', paddingHorizontal: 20 },
+  });
+}
