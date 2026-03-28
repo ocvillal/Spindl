@@ -9,7 +9,7 @@ import { Album, Track, MOCK_USERS } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
-import { getAlbumWithTracks } from '../services/spotify';
+import { getAlbumWithTracks, searchAll } from '../services/spotify';
 import { useRatings } from '../store/ratings';
 import { RootStackParamList } from '../App';
 
@@ -19,7 +19,7 @@ type Route = RouteProp<RootStackParamList, 'AlbumDetail'>;
 export default function AlbumDetailScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const { id } = route.params;
+  const { id, query } = route.params;
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -28,7 +28,15 @@ export default function AlbumDetailScreen() {
 
   useEffect(() => {
     setLoading(true);
-    getAlbumWithTracks(id)
+    const isSpotifyId = /^[A-Za-z0-9]{22}$/.test(id);
+    const resolve = isSpotifyId
+      ? getAlbumWithTracks(id)
+      : searchAll(query ?? id).then((r) => {
+          const spotifyId = r.albums[0]?.id;
+          if (!spotifyId) throw new Error('No Spotify match found');
+          return getAlbumWithTracks(spotifyId);
+        });
+    resolve
       .then(({ album, tracks }) => { setAlbum(album); setTracks(tracks); })
       .catch((e) => console.error('[Album detail error]', e?.message ?? e))
       .finally(() => setLoading(false));

@@ -93,5 +93,26 @@ create policy "discover_select_own" on discover_actions for select using (auth.u
 create policy "discover_insert_own" on discover_actions for insert with check (auth.uid() = user_id);
 create policy "discover_update_own" on discover_actions for update using (auth.uid() = user_id);
 
+-- ── Chart Snapshots ──────────────────────────────────────────────
+-- Stores weekly Last.fm global chart snapshots for time-based charts.
+-- Seeded client-side on app open; accumulates one batch of 50 rows per week.
+create table if not exists chart_snapshots (
+  id          uuid    primary key default gen_random_uuid(),
+  week_start  date    not null,           -- Monday of the week fetched (YYYY-MM-DD)
+  track_id    text    not null,           -- slugified "artist-track" key
+  track_name  text    not null,
+  artist_name text    not null,
+  track_data  jsonb   not null,           -- full Track object snapshot
+  playcount   bigint  not null,
+  unique (week_start, track_id)
+);
+
+-- Public chart data: anyone can read, only authenticated users can write
+alter table chart_snapshots enable row level security;
+create policy "chart_snapshots_select" on chart_snapshots for select using (true);
+create policy "chart_snapshots_insert" on chart_snapshots for insert with check (auth.uid() is not null);
+
+create index if not exists chart_snapshots_week_idx on chart_snapshots (week_start);
+
 -- NOTE: For avatar uploads, create a public Supabase Storage bucket named "avatars"
 -- Dashboard → Storage → New bucket → name: avatars → Public: on

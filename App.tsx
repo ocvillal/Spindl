@@ -26,7 +26,7 @@ import { Album, Track } from './constants/mockData';
 
 export type RootStackParamList = {
   MainTabs: undefined;
-  AlbumDetail: { id: string };
+  AlbumDetail: { id: string; query?: string };
   Log: { album?: Album; track?: Track } | undefined;
 };
 

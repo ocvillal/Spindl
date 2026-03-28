@@ -14,7 +14,7 @@ import {
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
-import { getTrendingAlbums, getPopularTracks } from '../services/spotify';
+import { seedWeeklyChart, getTopTracksForPeriod, getTopAlbumsForPeriod } from '../services/charts';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -44,6 +44,11 @@ export default function HomeScreen() {
   const me = MOCK_USERS[0];
 
   useEffect(() => {
+    seedWeeklyChart().catch(() => {}); // fire-and-forget, doesn't block UI
+    loadCharts(period);
+  }, []);
+
+  useEffect(() => {
     loadCharts(period);
   }, [period]);
 
@@ -51,8 +56,8 @@ export default function HomeScreen() {
     setLoadingCharts(true);
     try {
       const [albums, tracks] = await Promise.all([
-        getTrendingAlbums(10, p),
-        getPopularTracks(10, p),
+        getTopAlbumsForPeriod(p, 10),
+        getTopTracksForPeriod(p, 10),
       ]);
       setTrendingAlbums(albums);
       setTopTracks(tracks);
@@ -153,7 +158,7 @@ export default function HomeScreen() {
             ) : activeTab === null ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
                 {trendingAlbums.map((album) => (
-                  <TouchableOpacity key={album.id} style={styles.albumCard} onPress={() => navigation.navigate('AlbumDetail', { id: album.id })} activeOpacity={0.8}>
+                  <TouchableOpacity key={album.id} style={styles.albumCard} onPress={() => navigation.navigate('AlbumDetail', { id: album.id, query: `${album.title} ${album.artist}` })} activeOpacity={0.8}>
                     <AlbumCover album={album} size={130} borderRadius={14} />
                     <Text style={styles.albumCardTitle} numberOfLines={1}>{album.title}</Text>
                     <Text style={styles.albumCardArtist} numberOfLines={1}>{album.artist}</Text>
@@ -163,7 +168,7 @@ export default function HomeScreen() {
             ) : (
               <View style={styles.albumsGrid}>
                 {trendingAlbums.map((album) => (
-                  <TouchableOpacity key={album.id} style={styles.albumGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: album.id })} activeOpacity={0.8}>
+                  <TouchableOpacity key={album.id} style={styles.albumGridItem} onPress={() => navigation.navigate('AlbumDetail', { id: album.id, query: `${album.title} ${album.artist}` })} activeOpacity={0.8}>
                     <AlbumCover album={album} size={160} borderRadius={14} />
                     <Text style={styles.albumCardTitle} numberOfLines={1}>{album.title}</Text>
                     <Text style={styles.albumCardArtist} numberOfLines={1}>{album.artist}</Text>
