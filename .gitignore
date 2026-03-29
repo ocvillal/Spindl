@@ -8,3 +8,6 @@ android/.gradle/
 *.keystore
 .env
 .env.local
+dist/
+.claude/
+supabase/.temp/
