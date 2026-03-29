@@ -14,47 +14,24 @@ export interface SearchResults {
   artists: Artist[];
 }
 
-const CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID ?? '';
-const CLIENT_SECRET = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_SECRET ?? '';
-const TOKEN_URL = 'https://accounts.spotify.com/api/token';
-const API_BASE = 'https://api.spotify.com/v1';
+// CLIENT_ID is still needed by spotifyAuth.ts for the user-level OAuth flow
+export const SPOTIFY_CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID ?? '';
 
-// ─── Token Management ────────────────────────────────────────────
-
-let cachedToken: string | null = null;
-let tokenExpiresAt = 0;
-
-async function getAccessToken(): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
-
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    throw new Error('Spotify credentials missing. Check EXPO_PUBLIC_SPOTIFY_CLIENT_ID and EXPO_PUBLIC_SPOTIFY_CLIENT_SECRET in your .env file, then restart Metro.');
-  }
-
-  const response = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`),
-    },
-    body: 'grant_type=client_credentials',
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Spotify auth failed (${response.status}): ${body}`);
-  }
-
-  const data = await response.json();
-  cachedToken = data.access_token;
-  tokenExpiresAt = Date.now() + data.expires_in * 1000 - 60_000;
-  return cachedToken!;
-}
+// The client secret is no longer stored in the app.
+// All Client Credentials calls are proxied through the Supabase Edge Function
+// `spotify-proxy`, where the secret lives as a server-side environment variable.
+const PROXY_URL  = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/spotify-proxy`;
+const ANON_KEY   = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 async function spotifyFetch(endpoint: string): Promise<any> {
-  const token = await getAccessToken();
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const response = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ANON_KEY}`,
+      apikey: ANON_KEY,
+    },
+    body: JSON.stringify({ endpoint }),
   });
   if (!response.ok) {
     const body = await response.text();
@@ -115,6 +92,23 @@ function formatDuration(ms: number): string {
 }
 
 // ─── Public API ──────────────────────────────────────────────────
+
+/**
+ * Searches Spotify for a track by title + artist and returns its URI
+ * (e.g. 'spotify:track:4cOdK2wGLETKBW3PvgPWqT'), or null if not found.
+ * Uses Client Credentials — called only on user action, not on load.
+ */
+export async function findSpotifyTrackUri(title: string, artist: string): Promise<string | null> {
+  try {
+    const data = await spotifyFetch(
+      `/search?q=${encodeURIComponent(`${title} ${artist}`)}&type=track&limit=1&market=US`
+    );
+    const id = data.tracks?.items?.[0]?.id;
+    return id ? `spotify:track:${id}` : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Batch-fetches Spotify album cover URLs for a list of tracks.

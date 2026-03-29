@@ -11,7 +11,7 @@ import { AppTheme } from '../constants/themes';
 import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
-import { searchAll } from '../services/spotify';
+import { searchAll } from '../services/deezer';
 import { useRatings } from '../store/ratings';
 
 type Mode = 'album' | 'song';

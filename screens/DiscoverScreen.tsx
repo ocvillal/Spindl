@@ -11,15 +11,20 @@ import { AppTheme } from '../constants/themes';
 import { Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
-import { searchAll } from '../services/spotify';
+import { useAuthRequest, ResponseType } from 'expo-auth-session';
 import { getTopTracksForPeriod } from '../services/charts';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../store/auth';
 import { useProfile } from '../store/profile';
 import { useRatings } from '../store/ratings';
 import {
+  SPOTIFY_AUTH_CONFIG, DISCOVERY,
+  getSpotifyUserToken, handleSpotifyCallback, addToSpotifyQueue,
+} from '../services/spotifyAuth';
+import { findSpotifyTrackUri } from '../services/spotify';
+import {
   buildTasteProfile, scoreTrack,
-  deduplicateTracks, sortedEntries,
+  deduplicateTracks,
   blendWithSimilarUsers, communityScore, hybridFinalScore, epsilonGreedyRank,
   applySwipeSignal,
   SignalEntry, SignalAction, TasteProfile,
@@ -36,20 +41,14 @@ const EXIT_DURATION = 220;
 const SHEET_HEIGHT = 340;
 const POOL_REFETCH_THRESHOLD = 5; // fetch more when pool drops below this
 
-function openInSpotify(track: Track) {
-  const isSpotifyId = /^[A-Za-z0-9]{22}$/.test(track.id);
-  // Deep link opens Spotify app directly (works in production builds).
-  // Falls back to web player if Spotify isn't installed or on Expo Go.
-  const deepLink = isSpotifyId
-    ? `spotify:track:${track.id}`
-    : `spotify:search:${encodeURIComponent(`${track.title} ${track.artist}`)}`;
-  const webLink = isSpotifyId
-    ? `https://open.spotify.com/track/${track.id}`
+function openSpotifyFallback(spotifyUri: string | null, track: Track) {
+  const appUri = spotifyUri ?? `spotify:search:${encodeURIComponent(`${track.title} ${track.artist}`)}`;
+  const webUrl = spotifyUri
+    ? `https://open.spotify.com/track/${spotifyUri.split(':')[2]}`
     : `https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artist}`)}`;
-
-  Linking.canOpenURL(deepLink)
-    .then((supported) => Linking.openURL(supported ? deepLink : webLink))
-    .catch(() => Linking.openURL(webLink));
+  Linking.canOpenURL(appUri)
+    .then((ok) => Linking.openURL(ok ? appUri : webUrl))
+    .catch(() => Linking.openURL(webUrl));
 }
 
 type Action = 'listened' | 'not_heard' | 'saved';
@@ -72,6 +71,36 @@ export default function DiscoverScreen() {
   const { session } = useAuth();
   const { profile } = useProfile();
   const { logSong } = useRatings();
+
+  // Spotify OAuth request — triggers the login flow when promptAsync() is called
+  const [request, response, promptAsync] = useAuthRequest(
+    { ...SPOTIFY_AUTH_CONFIG, responseType: ResponseType.Code },
+    DISCOVERY,
+  );
+
+  // Handle OAuth callback
+  useEffect(() => {
+    if (response?.type === 'success' && request?.codeVerifier) {
+      const { code } = response.params;
+      handleSpotifyCallback(code, request.codeVerifier).catch(() => {});
+    }
+  }, [response]);
+
+  async function queueTrack(track: Track) {
+    const spotifyUri = await findSpotifyTrackUri(track.title, track.artist);
+    const token = await getSpotifyUserToken();
+
+    if (token && spotifyUri) {
+      const queued = await addToSpotifyQueue(spotifyUri);
+      if (queued) return; // Successfully queued — done
+      // Active device not found; fall through to open Spotify
+    } else if (!token) {
+      // Prompt Spotify login, then open the track
+      promptAsync();
+    }
+
+    openSpotifyFallback(spotifyUri, track);
+  }
 
   // Display state — only 2 cards ever rendered
   const [currentItem, setCurrentItem] = useState<DiscoverItem | null>(null);
@@ -133,6 +162,8 @@ export default function DiscoverScreen() {
       ]);
 
       const seenIds = new Set<string>((actionsData ?? []).map((r: any) => String(r.track_id)));
+      // Also exclude songs already in the user's collection
+      (entriesData ?? []).filter((e: any) => e.type === 'song').forEach((e: any) => seenIds.add(String(e.item_id)));
       seenIdsRef.current = seenIds;
 
       const entries: SignalEntry[] = (entriesData ?? []).map((row: any) => ({
@@ -149,11 +180,9 @@ export default function DiscoverScreen() {
 
       if (session?.user.id) upsertTasteVector(session.user.id, tasteProfile).catch(() => {});
 
-      const topArtists = sortedEntries(tasteProfile.artists).slice(0, 2).map(([a]) => a);
       const allCandidateIds = chartTracksRes.map((t) => t.id);
 
-      const [artistResults, allVectors, itemSignalMap] = await Promise.all([
-        Promise.allSettled(topArtists.map((a) => searchAll(a).then((r) => r.tracks))),
+      const [allVectors, itemSignalMap] = await Promise.all([
         fetchAllTasteVectors(),
         fetchItemSignals(allCandidateIds),
       ]);
@@ -161,17 +190,16 @@ export default function DiscoverScreen() {
       allVectorsRef.current    = allVectors;
       itemSignalMapRef.current = itemSignalMap;
 
-      const artistTracks = artistResults.flatMap((r) => r.status === 'fulfilled' ? r.value : []);
       const blendedProfile = session?.user.id
         ? blendWithSimilarUsers(tasteProfile, allVectors, session.user.id)
         : tasteProfile;
 
-      let allTracks = deduplicateTracks([...chartTracksRes, ...artistTracks]).filter((t) => !seenIds.has(t.id));
+      let allTracks = deduplicateTracks(chartTracksRes).filter((t) => !seenIds.has(t.id));
 
       // If everything has been seen, reset and show full pool again
       if (allTracks.length === 0) {
         seenIdsRef.current = new Set();
-        allTracks = deduplicateTracks([...chartTracksRes, ...artistTracks]);
+        allTracks = deduplicateTracks(chartTracksRes);
       }
 
       const scored = buildScoredPool(allTracks, blendedProfile, itemSignalMap, tasteProfile.signalCount);
@@ -333,7 +361,7 @@ export default function DiscoverScreen() {
         .start(({ finished }) => { if (finished) setShowRating(true); });
     } else {
       ratingSheetAnim.setValue(0);
-      if (action === 'saved') openInSpotify(current.item);
+      if (action === 'saved') queueTrack(current.item);
       saveAction(action, null, current);
       advanceQueue(current, action, null);
       requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));
@@ -360,7 +388,7 @@ export default function DiscoverScreen() {
         .start(({ finished }) => { if (finished) setShowRating(true); });
     } else {
       ratingSheetAnim.setValue(0);
-      if (action === 'saved') openInSpotify(current.item);
+      if (action === 'saved') queueTrack(current.item);
       saveAction(action, null, current);
       advanceQueue(current, action, null);
       requestAnimationFrame(() => position.setValue({ x: 0, y: 0 }));

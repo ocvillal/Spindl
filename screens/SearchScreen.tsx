@@ -15,10 +15,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../store/theme';
 import { AppTheme } from '../constants/themes';
-import { Album } from '../constants/mockData';
+import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
-import { Artist, SearchResults, searchAll } from '../services/spotify';
-import { getTopAlbums } from '../services/deezer';
+import { searchAll, getTopAlbums, DeezerArtist, DeezerSearchResults } from '../services/deezer';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -38,7 +37,7 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [filter, setFilter] = useState<FilterType>('all');
-  const [results, setResults] = useState<SearchResults>({ albums: [], tracks: [], artists: [] });
+  const [results, setResults] = useState<DeezerSearchResults>({ albums: [], tracks: [], artists: [] });
   const [trending, setTrending] = useState<Album[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -146,7 +145,7 @@ export default function SearchScreen() {
                 {showAlbums && results.albums.length > 0 && (
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Albums</Text>}
-                    {results.albums.map((album) => (
+                    {results.albums.map((album: Album) => (
                       <View key={album.id} style={styles.resultRow}>
                         <TouchableOpacity
                           style={styles.resultRowMain}
@@ -175,7 +174,7 @@ export default function SearchScreen() {
                 {showSongs && results.tracks.length > 0 && (
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Songs</Text>}
-                    {results.tracks.map((track) => (
+                    {results.tracks.map((track: Track) => (
                       <View key={track.id} style={styles.resultRow}>
                         <TouchableOpacity
                           style={styles.resultRowMain}
@@ -204,7 +203,7 @@ export default function SearchScreen() {
                 {showArtists && results.artists.length > 0 && (
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Artists</Text>}
-                    {results.artists.map((artist) => (
+                    {results.artists.map((artist: DeezerArtist) => (
                       <View key={artist.id} style={styles.resultRow}>
                         {artist.image ? (
                           <Image source={{ uri: artist.image }} style={styles.artistImage} />

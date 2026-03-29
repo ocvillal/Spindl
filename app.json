@@ -2,6 +2,7 @@
   "expo": {
     "name": "Spindl",
     "slug": "spindl",
+    "scheme": "spindl",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",

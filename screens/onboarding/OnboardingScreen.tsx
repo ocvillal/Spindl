@@ -7,28 +7,27 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { useProfile } from '../../store/profile';
-import { searchAll } from '../../services/spotify';
+import { searchAll, DeezerArtist } from '../../services/deezer';
 import AlbumCover from '../../components/AlbumCover';
-import { Artist } from '../../services/spotify';
 import { Album, Track } from '../../constants/mockData';
 
-const GENRES = [
-  { id: 'pop', label: 'Pop', emoji: '🎵' },
-  { id: 'rock', label: 'Rock', emoji: '🎸' },
-  { id: 'hip-hop', label: 'Hip-Hop', emoji: '🎤' },
-  { id: 'rnb', label: 'R&B', emoji: '🎷' },
-  { id: 'jazz', label: 'Jazz', emoji: '🎺' },
-  { id: 'classical', label: 'Classical', emoji: '🎻' },
-  { id: 'electronic', label: 'Electronic', emoji: '🎧' },
-  { id: 'country', label: 'Country', emoji: '🤠' },
-  { id: 'latin', label: 'Latin', emoji: '💃' },
-  { id: 'indie', label: 'Indie', emoji: '🌿' },
-  { id: 'metal', label: 'Metal', emoji: '🤘' },
-  { id: 'folk', label: 'Folk', emoji: '🪕' },
-  { id: 'reggae', label: 'Reggae', emoji: '🌴' },
-  { id: 'blues', label: 'Blues', emoji: '🎶' },
-  { id: 'k-pop', label: 'K-Pop', emoji: '✨' },
-  { id: 'afrobeats', label: 'Afrobeats', emoji: '🥁' },
+const GENRES: { id: string; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
+  { id: 'pop',        label: 'Pop',       icon: 'musical-note' },
+  { id: 'rock',       label: 'Rock',      icon: 'flash' },
+  { id: 'hip-hop',    label: 'Hip-Hop',   icon: 'mic' },
+  { id: 'rnb',        label: 'R&B',       icon: 'heart' },
+  { id: 'jazz',       label: 'Jazz',      icon: 'cafe' },
+  { id: 'classical',  label: 'Classical', icon: 'library' },
+  { id: 'electronic', label: 'Electronic',icon: 'pulse' },
+  { id: 'country',    label: 'Country',   icon: 'sunny' },
+  { id: 'latin',      label: 'Latin',     icon: 'flame' },
+  { id: 'indie',      label: 'Indie',     icon: 'leaf' },
+  { id: 'metal',      label: 'Metal',     icon: 'skull' },
+  { id: 'folk',       label: 'Folk',      icon: 'earth' },
+  { id: 'reggae',     label: 'Reggae',    icon: 'sunny-outline' },
+  { id: 'blues',      label: 'Blues',     icon: 'moon' },
+  { id: 'k-pop',      label: 'K-Pop',     icon: 'star' },
+  { id: 'afrobeats',  label: 'Afrobeats', icon: 'radio' },
 ];
 
 export default function OnboardingScreen() {
@@ -48,9 +47,11 @@ export default function OnboardingScreen() {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
 
   // Step 2: artists
-  const [artists, setArtists] = useState<Artist[]>([]);
+  const [artistPool, setArtistPool] = useState<DeezerArtist[]>([]);
+  const [artistOffset, setArtistOffset] = useState(0);
   const [selectedArtists, setSelectedArtists] = useState<string[]>([]);
   const [loadingArtists, setLoadingArtists] = useState(false);
+  const PAGE_SIZE = 12;
 
   // Step 3: albums
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -76,15 +77,51 @@ export default function OnboardingScreen() {
     }, 500);
   }, [username]);
 
+  // Deezer genre ID map
+  const DEEZER_GENRE_IDS: Record<string, number> = {
+    'pop': 132, 'rock': 152, 'hip-hop': 116, 'rnb': 165,
+    'jazz': 129, 'classical': 98, 'electronic': 106, 'country': 84,
+    'latin': 67, 'indie': 77, 'metal': 464, 'folk': 169,
+    'reggae': 144, 'blues': 231, 'k-pop': 122, 'afrobeats': 2586,
+  };
+
   // Load artists when entering step 2
   useEffect(() => {
     if (step !== 2) return;
     setLoadingArtists(true);
-    const query = selectedGenres[0] ?? 'pop';
-    searchAll(query)
-      .then((r) => setArtists(r.artists.slice(0, 12)))
-      .catch(() => {})
-      .finally(() => setLoadingArtists(false));
+    setArtistOffset(0);
+    const genres = selectedGenres.length > 0 ? selectedGenres : ['pop'];
+    Promise.all(
+      genres.map((g) => {
+        const id = DEEZER_GENRE_IDS[g] ?? DEEZER_GENRE_IDS['pop'];
+        return fetch(`https://api.deezer.com/genre/${id}/artists`)
+          .then((r) => r.json())
+          .then((d) => (d.data ?? []) as any[])
+          .catch(() => [] as any[]);
+      })
+    ).then((results) => {
+      const seen = new Set<string>();
+      const merged: DeezerArtist[] = [];
+      for (const list of results) {
+        for (const a of list) {
+          const key = String(a.id);
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push({
+              id: key, name: a.name,
+              image: a.picture_xl ?? a.picture_big ?? a.picture_medium ?? '',
+              genres: [], followersCount: 0,
+            });
+          }
+        }
+      }
+      // Shuffle so mixed-genre results don't cluster
+      for (let i = merged.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [merged[i], merged[j]] = [merged[j], merged[i]];
+      }
+      setArtistPool(merged);
+    }).finally(() => setLoadingArtists(false));
   }, [step]);
 
   // Load albums when entering step 3
@@ -222,7 +259,7 @@ export default function OnboardingScreen() {
                     active ? prev.filter((x) => x !== g.id) : [...prev, g.id]
                   )}
                 >
-                  <Text style={styles.genreEmoji}>{g.emoji}</Text>
+                  <Ionicons name={g.icon} size={16} color={active ? Colors.primary : Colors.muted} />
                   <Text style={[styles.genreLabel, active && styles.genreLabelActive]}>{g.label}</Text>
                 </TouchableOpacity>
               );
@@ -244,34 +281,44 @@ export default function OnboardingScreen() {
           {loadingArtists ? (
             <View style={styles.loadingWrap}><ActivityIndicator color={Colors.primary} size="large" /></View>
           ) : (
-            <View style={styles.artistGrid}>
-              {artists.map((a) => {
-                const active = selectedArtists.includes(a.name);
-                return (
-                  <TouchableOpacity
-                    key={a.id}
-                    style={[styles.artistCard, active && styles.artistCardActive]}
-                    onPress={() => setSelectedArtists((prev) =>
-                      active ? prev.filter((x) => x !== a.name) : [...prev, a.name]
-                    )}
-                  >
-                    {a.image ? (
-                      <Image source={{ uri: a.image }} style={styles.artistImg} />
-                    ) : (
-                      <View style={[styles.artistImg, styles.artistImgPlaceholder]}>
-                        <Text style={styles.artistInitial}>{a.name[0]}</Text>
-                      </View>
-                    )}
-                    <Text style={styles.artistName} numberOfLines={1}>{a.name}</Text>
-                    {active && (
-                      <View style={styles.artistCheck}>
-                        <Ionicons name="checkmark" size={12} color="#fff" />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <>
+              <View style={styles.artistGrid}>
+                {artistPool.slice(artistOffset, artistOffset + PAGE_SIZE).map((a) => {
+                  const active = selectedArtists.includes(a.name);
+                  return (
+                    <TouchableOpacity
+                      key={a.id}
+                      style={[styles.artistCard, active && styles.artistCardActive]}
+                      onPress={() => setSelectedArtists((prev) =>
+                        active ? prev.filter((x) => x !== a.name) : [...prev, a.name]
+                      )}
+                    >
+                      {a.image ? (
+                        <Image source={{ uri: a.image }} style={styles.artistImg} />
+                      ) : (
+                        <View style={[styles.artistImg, styles.artistImgPlaceholder]}>
+                          <Text style={styles.artistInitial}>{a.name[0]}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.artistName} numberOfLines={1}>{a.name}</Text>
+                      {active && (
+                        <View style={styles.artistCheck}>
+                          <Ionicons name="checkmark" size={12} color="#fff" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {artistOffset + PAGE_SIZE < artistPool.length && (
+                <TouchableOpacity
+                  style={styles.showMoreBtn}
+                  onPress={() => setArtistOffset((o) => o + PAGE_SIZE)}
+                >
+                  <Text style={styles.showMoreText}>Show more artists</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
 
           <TouchableOpacity style={styles.nextBtn} onPress={() => setStep(3)}>
@@ -427,7 +474,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.border,
   },
   genreChipActive: { backgroundColor: Colors.primaryDim, borderColor: Colors.primary },
-  genreEmoji: { fontSize: 16 },
   genreLabel: { color: Colors.muted, fontSize: 14, fontWeight: '600' },
   genreLabelActive: { color: Colors.primary },
 
@@ -445,6 +491,11 @@ const styles = StyleSheet.create({
   artistImgPlaceholder: { backgroundColor: Colors.surfaceAlt, justifyContent: 'center', alignItems: 'center' },
   artistInitial: { color: Colors.text, fontSize: 24, fontWeight: '800' },
   artistName: { color: Colors.text, fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  showMoreBtn: {
+    marginTop: 12, paddingVertical: 10, alignItems: 'center',
+    borderRadius: 10, borderWidth: 1, borderColor: Colors.border,
+  },
+  showMoreText: { color: Colors.primary, fontSize: 14, fontWeight: '600' },
   artistCheck: {
     position: 'absolute', top: 6, right: 6,
     width: 20, height: 20, borderRadius: 10,
