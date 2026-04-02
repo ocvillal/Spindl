@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -136,17 +137,19 @@ function RootNavigator() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ProfileProvider>
-          <RatingsProvider>
-            <NavigationContainer>
-              <RootNavigator />
-            </NavigationContainer>
-          </RatingsProvider>
-        </ProfileProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <ProfileProvider>
+            <RatingsProvider>
+              <NavigationContainer>
+                <RootNavigator />
+              </NavigationContainer>
+            </RatingsProvider>
+          </ProfileProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 

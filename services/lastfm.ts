@@ -59,3 +59,44 @@ export async function fetchTopTracks(limit = 50): Promise<LastFmTrack[]> {
   const data = await lastFmFetch({ method: 'chart.getTopTracks', limit: String(limit) });
   return (data.tracks?.track ?? []).map(mapLastFmTrack);
 }
+
+// Map app genre IDs to Last.fm tag names where they differ
+const LASTFM_TAG_MAP: Record<string, string> = {
+  'rnb': 'r&b',
+};
+
+function toLastFmTag(genre: string): string {
+  return LASTFM_TAG_MAP[genre] ?? genre;
+}
+
+/** Top artist names for a genre tag (Last.fm no longer serves artist images). */
+export async function fetchTagArtistNames(tag: string, limit = 12): Promise<string[]> {
+  const data = await lastFmFetch({ method: 'tag.getTopArtists', tag: toLastFmTag(tag), limit: String(limit) });
+  return (data.topartists?.artist ?? []).map((a: any) => a.name as string).filter(Boolean);
+}
+
+/** Top albums for a genre tag. */
+export async function fetchTagAlbums(tag: string, limit = 12): Promise<Album[]> {
+  const data = await lastFmFetch({ method: 'tag.getTopAlbums', tag: toLastFmTag(tag), limit: String(limit) });
+  return (data.albums?.album ?? []).map((item: any): Album => {
+    const images: any[] = item.image ?? [];
+    const cover = images[images.length - 1]?.['#text'] ?? '';
+    return {
+      id: item.mbid || `lf-${slugify(item.name ?? '')}-${slugify(item.artist?.name ?? '')}`,
+      title: item.name ?? '',
+      artist: item.artist?.name ?? '',
+      year: 0,
+      genre: [],
+      cover,
+      coverGradient: ['#1a1a2e', '#16213e'],
+      trackCount: 0,
+      duration: '',
+    };
+  });
+}
+
+/** Top tracks for a genre tag. */
+export async function fetchTagTracks(tag: string, limit = 12): Promise<LastFmTrack[]> {
+  const data = await lastFmFetch({ method: 'tag.getTopTracks', tag: toLastFmTag(tag), limit: String(limit) });
+  return (data.tracks?.track ?? []).map(mapLastFmTrack);
+}

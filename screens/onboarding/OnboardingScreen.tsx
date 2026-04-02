@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, Image, ActivityIndicator,
+  StyleSheet, Image, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { useProfile } from '../../store/profile';
-import { searchAll, DeezerArtist } from '../../services/deezer';
+import { DeezerArtist } from '../../services/deezer';
+import { fetchTagArtistNames, fetchTagAlbums, fetchTagTracks } from '../../services/lastfm';
 import AlbumCover from '../../components/AlbumCover';
 import { Album, Track } from '../../constants/mockData';
 
@@ -77,60 +79,61 @@ export default function OnboardingScreen() {
     }, 500);
   }, [username]);
 
-  // Deezer genre ID map
-  const DEEZER_GENRE_IDS: Record<string, number> = {
-    'pop': 132, 'rock': 152, 'hip-hop': 116, 'rnb': 165,
-    'jazz': 129, 'classical': 98, 'electronic': 106, 'country': 84,
-    'latin': 67, 'indie': 77, 'metal': 464, 'folk': 169,
-    'reggae': 144, 'blues': 231, 'k-pop': 122, 'afrobeats': 2586,
-  };
-
   // Load artists when entering step 2
+  // Last.fm provides genre-accurate names; Deezer search fetches images
   useEffect(() => {
     if (step !== 2) return;
     setLoadingArtists(true);
     setArtistOffset(0);
+
     const genres = selectedGenres.length > 0 ? selectedGenres : ['pop'];
-    Promise.all(
-      genres.map((g) => {
-        const id = DEEZER_GENRE_IDS[g] ?? DEEZER_GENRE_IDS['pop'];
-        return fetch(`https://api.deezer.com/genre/${id}/artists`)
-          .then((r) => r.json())
-          .then((d) => (d.data ?? []) as any[])
-          .catch(() => [] as any[]);
-      })
-    ).then((results) => {
-      const seen = new Set<string>();
-      const merged: DeezerArtist[] = [];
-      for (const list of results) {
-        for (const a of list) {
-          const key = String(a.id);
-          if (!seen.has(key)) {
-            seen.add(key);
-            merged.push({
-              id: key, name: a.name,
-              image: a.picture_xl ?? a.picture_big ?? a.picture_medium ?? '',
-              genres: [], followersCount: 0,
-            });
+    Promise.all(genres.map((g) => fetchTagArtistNames(g, 12)))
+      .then(async (results) => {
+        const seen = new Set<string>();
+        const names: string[] = [];
+        for (const list of results) {
+          for (const n of list) {
+            if (!seen.has(n)) { seen.add(n); names.push(n); }
           }
         }
-      }
-      // Shuffle so mixed-genre results don't cluster
-      for (let i = merged.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [merged[i], merged[j]] = [merged[j], merged[i]];
-      }
-      setArtistPool(merged);
-    }).finally(() => setLoadingArtists(false));
+        const artistResults = await Promise.all(
+          names.map((name) =>
+            fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}&limit=1`)
+              .then((r) => r.json())
+              .then((d) => (d.data?.[0] ?? null) as any)
+              .catch(() => null)
+          )
+        );
+        const merged: DeezerArtist[] = artistResults
+          .filter(Boolean)
+          .map((a) => ({
+            id: String(a.id),
+            name: a.name,
+            image: a.picture_xl ?? a.picture_big ?? a.picture_medium ?? '',
+            genres: [],
+            followersCount: a.nb_fan ?? 0,
+          }));
+        setArtistPool(merged);
+      })
+      .finally(() => setLoadingArtists(false));
   }, [step]);
 
   // Load albums when entering step 3
   useEffect(() => {
     if (step !== 3) return;
     setLoadingAlbums(true);
-    const query = selectedArtists[0] ?? selectedGenres[0] ?? 'pop';
-    searchAll(query)
-      .then((r) => setAlbums(r.albums.slice(0, 12)))
+
+    const genres = selectedGenres.length > 0 ? selectedGenres : ['pop'];
+    Promise.all(genres.map((g) => fetchTagAlbums(g, 12)))
+      .then((results) => {
+        const seen = new Set<string>();
+        const merged = results.flat().filter((a) => {
+          if (seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        });
+        setAlbums(merged);
+      })
       .catch(() => {})
       .finally(() => setLoadingAlbums(false));
   }, [step]);
@@ -139,9 +142,18 @@ export default function OnboardingScreen() {
   useEffect(() => {
     if (step !== 4) return;
     setLoadingSongs(true);
-    const query = selectedGenres[0] ?? 'pop';
-    searchAll(query)
-      .then((r) => setSongs(r.tracks.slice(0, 12)))
+
+    const genres = selectedGenres.length > 0 ? selectedGenres : ['pop'];
+    Promise.all(genres.map((g) => fetchTagTracks(g, 12)))
+      .then((results) => {
+        const seen = new Set<string>();
+        const merged = results.flat().filter((t) => {
+          if (seen.has(t.id)) return false;
+          seen.add(t.id);
+          return true;
+        });
+        setSongs(merged.slice(0, 24));
+      })
       .catch(() => {})
       .finally(() => setLoadingSongs(false));
   }, [step]);
