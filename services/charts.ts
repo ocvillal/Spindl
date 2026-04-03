@@ -2,7 +2,6 @@ import { Track, Album } from '../constants/mockData';
 import { supabase } from './supabase';
 import { fetchTopTracks } from './lastfm';
 import { getTopAlbums as deezerTopAlbums } from './deezer';
-import { getSpotifyTrackCovers } from './spotify';
 
 type Period = 'week' | 'month' | 'year';
 
@@ -27,17 +26,21 @@ function cutoffDate(period: Period): string {
 
 // ─── Spotify Artwork Enrichment ──────────────────────────────────
 
-async function enrichWithSpotify(tracks: Track[]): Promise<Track[]> {
-  try {
-    const covers = await getSpotifyTrackCovers(
-      tracks.map((t) => ({ title: t.title, artist: t.artist }))
-    );
-    return tracks.map((t, i) =>
-      covers[i] ? { ...t, album: { ...t.album, cover: covers[i] } } : t
-    );
-  } catch {
-    return tracks; // artwork failure is non-fatal
-  }
+async function enrichWithDeezer(tracks: Track[]): Promise<Track[]> {
+  const covers = await Promise.all(
+    tracks.map(({ title, artist }) =>
+      fetch(`https://api.deezer.com/search?q=track:"${encodeURIComponent(title)}" artist:"${encodeURIComponent(artist)}"&limit=1`)
+        .then((r) => r.json())
+        .then((d) => {
+          const item = d.data?.[0];
+          return item?.album?.cover_xl ?? item?.album?.cover_big ?? item?.album?.cover_medium ?? '';
+        })
+        .catch(() => '')
+    )
+  );
+  return tracks.map((t, i) =>
+    covers[i] ? { ...t, album: { ...t.album, cover: covers[i] } } : t
+  );
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────
@@ -95,7 +98,7 @@ export async function getTopTracksForPeriod(period: Period, limit = 10): Promise
   // Cold start fallback
   if (!data || data.length === 0) {
     const tracks = await fetchTopTracks(limit);
-    return enrichWithSpotify(tracks.slice(0, limit));
+    return enrichWithDeezer(tracks.slice(0, limit));
   }
 
   // Aggregate playcount across weeks, then rank
@@ -114,7 +117,7 @@ export async function getTopTracksForPeriod(period: Period, limit = 10): Promise
     .slice(0, limit)
     .map((v) => v.track);
 
-  return enrichWithSpotify(ranked);
+  return enrichWithDeezer(ranked);
 }
 
 /**

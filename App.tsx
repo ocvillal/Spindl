@@ -23,12 +23,14 @@ import LogScreen from './screens/LogScreen';
 import AuthScreen from './screens/AuthScreen';
 import OnboardingScreen from './screens/onboarding/OnboardingScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import ArtistScreen from './screens/ArtistScreen';
 
 import { Album, Track } from './constants/mockData';
 
 export type RootStackParamList = {
   MainTabs: undefined;
   AlbumDetail: { id: string; query?: string };
+  ArtistDetail: { id?: string; name: string };
   Log: { album?: Album; track?: Track } | undefined;
   Settings: undefined;
 };
@@ -104,6 +106,7 @@ function MainStack() {
     >
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="AlbumDetail" component={AlbumDetailScreen} />
+      <Stack.Screen name="ArtistDetail" component={ArtistScreen} />
       <Stack.Screen
         name="Log"
         component={LogScreen}

@@ -8,8 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/colors';
 import { useProfile } from '../../store/profile';
-import { DeezerArtist } from '../../services/deezer';
-import { fetchTagArtistNames, fetchTagAlbums, fetchTagTracks } from '../../services/lastfm';
+import { DeezerArtist, searchAll } from '../../services/deezer';
+import { fetchTagArtistNames, fetchTagAlbums } from '../../services/lastfm';
 import AlbumCover from '../../components/AlbumCover';
 import { Album, Track } from '../../constants/mockData';
 
@@ -144,7 +144,7 @@ export default function OnboardingScreen() {
     setLoadingSongs(true);
 
     const genres = selectedGenres.length > 0 ? selectedGenres : ['pop'];
-    Promise.all(genres.map((g) => fetchTagTracks(g, 12)))
+    Promise.all(genres.map((g) => searchAll(g).then((r) => r.tracks)))
       .then((results) => {
         const seen = new Set<string>();
         const merged = results.flat().filter((t) => {
