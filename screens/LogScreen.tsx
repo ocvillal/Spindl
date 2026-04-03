@@ -12,7 +12,21 @@ import { AppTheme } from '../constants/themes';
 import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
 import StarRating from '../components/StarRating';
-import { searchAll } from '../services/deezer';
+import { searchAll, cleanTitle, resolveCanonicalTrack } from '../services/deezer';
+import { canonicalSongKey } from '../store/ratings';
+
+function dedupeLogTracks(tracks: Track[]): Track[] {
+  const seen = new Map<string, Track>();
+  for (const t of tracks) {
+    const key = canonicalSongKey(t);
+    const ex = seen.get(key);
+    if (!ex) { seen.set(key, t); continue; }
+    const tLen = cleanTitle(t.title).length;
+    const exLen = cleanTitle(ex.title).length;
+    if (tLen < exLen || (tLen === exLen && parseInt(t.id) < parseInt(ex.id))) seen.set(key, t);
+  }
+  return [...seen.values()];
+}
 import { useRatings } from '../store/ratings';
 
 type Mode = 'album' | 'song';
@@ -22,7 +36,7 @@ export default function LogScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'Log'>>();
-  const { logAlbum, logSong } = useRatings();
+  const { logAlbum, logSong, getAlbumEntry, getSongEntryForTrack } = useRatings();
 
   const preAlbum = route.params?.album;
   const preTrack = route.params?.track;
@@ -34,9 +48,15 @@ export default function LogScreen() {
 
   const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(preAlbum ?? null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(preTrack ?? null);
-  const [rating, setRating] = useState(0);
-  const [review, setReview] = useState('');
-  const [liked, setLiked] = useState(false);
+
+  // Pre-populate from existing entry if re-logging the same song/album
+  const existingAlbumEntry = selectedAlbum ? getAlbumEntry(selectedAlbum.id) : undefined;
+  const existingTrackEntry = selectedTrack ? getSongEntryForTrack(selectedTrack) : undefined;
+  const existingEntry = mode === 'album' ? existingAlbumEntry : existingTrackEntry;
+
+  const [rating, setRating] = useState(existingEntry?.rating ?? 0);
+  const [review, setReview] = useState(existingEntry?.review ?? '');
+  const [liked, setLiked] = useState(existingEntry?.liked ?? false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,6 +74,14 @@ export default function LogScreen() {
     setLiked(false);
   }, [mode]);
 
+  // Silently resolve pre-selected track to its canonical (original) version
+  useEffect(() => {
+    if (!preTrack) return;
+    resolveCanonicalTrack(preTrack).then((canonical) => {
+      setSelectedTrack(canonical);
+    }).catch(() => {});
+  }, []);
+
   // Debounced Spotify search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -61,7 +89,7 @@ export default function LogScreen() {
     setSearching(true);
     debounceRef.current = setTimeout(() => {
       searchAll(searchQuery)
-        .then((r) => setSearchResults({ albums: r.albums, tracks: r.tracks }))
+        .then((r) => setSearchResults({ albums: r.albums, tracks: dedupeLogTracks(r.tracks) }))
         .catch(() => setSearchResults({ albums: [], tracks: [] }))
         .finally(() => setSearching(false));
     }, 400);
@@ -89,7 +117,7 @@ export default function LogScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navClose}>
           <Ionicons name="close" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>Log {mode === 'album' ? 'Album' : 'Song'}</Text>
+        <Text style={styles.navTitle}>{existingEntry ? 'Edit' : 'Log'} {mode === 'album' ? 'Album' : 'Song'}</Text>
         <TouchableOpacity style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]} disabled={!canSave} onPress={handleSave}>
           <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>Save</Text>
         </TouchableOpacity>
@@ -144,8 +172,20 @@ export default function LogScreen() {
                     key={item.id}
                     style={styles.searchResultRow}
                     onPress={() => {
-                      if (isAlbum) { setSelectedAlbum(item as Album); }
-                      else { setSelectedTrack(item as Track); }
+                      if (isAlbum) {
+                        setSelectedAlbum(item as Album);
+                        const ex = getAlbumEntry((item as Album).id);
+                        if (ex) { setRating(ex.rating); setReview(ex.review); setLiked(ex.liked); }
+                        else { setRating(0); setReview(''); setLiked(false); }
+                      } else {
+                        const picked = item as Track;
+                        setSelectedTrack(picked);
+                        const ex = getSongEntryForTrack(picked);
+                        if (ex) { setRating(ex.rating); setReview(ex.review); setLiked(ex.liked); }
+                        else { setRating(0); setReview(''); setLiked(false); }
+                        // Silently swap to canonical (original) version's artwork
+                        resolveCanonicalTrack(picked).then(setSelectedTrack).catch(() => {});
+                      }
                       setSearchQuery('');
                       setSearchResults({ albums: [], tracks: [] });
                     }}

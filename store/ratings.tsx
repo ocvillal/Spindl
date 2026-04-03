@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Album, Track } from '../constants/mockData';
 import { supabase } from '../services/supabase';
 import { useAuth } from './auth';
+import { cleanTitle } from '../services/deezer';
 
 export interface AlbumEntry {
   id: string;
@@ -25,6 +26,11 @@ export interface SongEntry {
 
 export type Entry = AlbumEntry | SongEntry;
 
+/** Stable key used as item_id for song entries — normalises all mixes/remasters to one slot. */
+export function canonicalSongKey(track: Track): string {
+  return `${cleanTitle(track.title).toLowerCase()}::${track.artist.toLowerCase()}`;
+}
+
 interface RatingsStore {
   entries: Entry[];
   loading: boolean;
@@ -32,6 +38,7 @@ interface RatingsStore {
   logSong: (track: Track, rating: number, review: string, liked: boolean) => Promise<void>;
   getAlbumEntry: (albumId: string) => AlbumEntry | undefined;
   getSongEntry: (trackId: string) => SongEntry | undefined;
+  getSongEntryForTrack: (track: Track) => SongEntry | undefined;
 }
 
 const RatingsContext = createContext<RatingsStore | null>(null);
@@ -116,21 +123,24 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
   }
 
   async function logSong(track: Track, rating: number, review: string, liked: boolean) {
-    const entry: SongEntry = { id: track.id, type: 'song', track, rating, review, liked, date: today() };
+    const key = canonicalSongKey(track);
+    // Always store with the clean title so the entry isn't tied to a specific mix variant
+    const canonicalTrack: Track = { ...track, title: cleanTitle(track.title) };
+    const entry: SongEntry = { id: key, type: 'song', track: canonicalTrack, rating, review, liked, date: today() };
 
-    setEntries((prev) => [entry, ...prev.filter((e) => !(e.type === 'song' && e.id === track.id))]);
+    setEntries((prev) => [entry, ...prev.filter((e) => !(e.type === 'song' && e.id === key))]);
 
     const { error } = await supabase.from('entries').upsert(
       {
         user_id: session!.user.id,
-        item_id: track.id,
+        item_id: key,
         type: 'song',
         rating,
         review,
         liked,
         date: today(),
-        album_data: track.album,
-        track_data: track,
+        album_data: canonicalTrack.album,
+        track_data: canonicalTrack,
       },
       { onConflict: 'user_id,type,item_id' }
     );
@@ -146,8 +156,13 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
     return entries.find((e): e is SongEntry => e.type === 'song' && e.id === trackId);
   }
 
+  function getSongEntryForTrack(track: Track) {
+    const key = canonicalSongKey(track);
+    return entries.find((e): e is SongEntry => e.type === 'song' && e.id === key);
+  }
+
   return (
-    <RatingsContext.Provider value={{ entries, loading, logAlbum, logSong, getAlbumEntry, getSongEntry }}>
+    <RatingsContext.Provider value={{ entries, loading, logAlbum, logSong, getAlbumEntry, getSongEntry, getSongEntryForTrack }}>
       {children}
     </RatingsContext.Provider>
   );

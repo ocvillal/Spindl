@@ -13,6 +13,10 @@ export function cleanTitle(title: string): string {
     .replace(/\s*[\(\[]\s*(deluxe|anniversary|expanded|super deluxe|special|bonus tracks?)(\s+edition)?\s*[\)\]]/gi, '')
     // Strip year+Mix variants: (2015 Mix), (2023 Mix)
     .replace(/\s*[\(\[]\s*\d{4}\s+[Mm]ix\s*[\)\]]/g, '')
+    // Strip live/acoustic/demo/mono/stereo variants: (Live), (Live at Budokan), (Acoustic Version), (Demo), (Mono), (Stereo)
+    .replace(/\s*[\(\[]\s*(live\b[^\)\]]*|acoustic(\s+version)?|demo(\s+version)?|mono|stereo)\s*[\)\]]/gi, '')
+    // Strip bare trailing variants preceded by dash: "Song Title - Live", "Song Title - Acoustic"
+    .replace(/\s*[-–]\s*(live|acoustic|demo)\b.*/gi, '')
     // Strip bare trailing remaster: "Abbey Road - Remastered"
     .replace(/\s*[-–]?\s*remaster(ed)?\b.*/gi, '')
     // Strip bare trailing packaging: "- Deluxe Edition"
@@ -215,8 +219,8 @@ export async function searchAll(query: string): Promise<DeezerSearchResults> {
   if (!query.trim()) return { albums: [], tracks: [], artists: [] };
   const q = encodeURIComponent(query);
   const [tracksRes, albumsRes, artistsRes] = await Promise.all([
-    fetch(`${API_BASE}/search?q=${q}&limit=10`),
-    fetch(`${API_BASE}/search/album?q=${q}&limit=10`),
+    fetch(`${API_BASE}/search?q=${q}&limit=25`),
+    fetch(`${API_BASE}/search/album?q=${q}&limit=25`),
     fetch(`${API_BASE}/search/artist?q=${q}&limit=10`),
   ]);
   const [tracksData, albumsData, artistsData] = await Promise.all([
@@ -229,4 +233,30 @@ export async function searchAll(query: string): Promise<DeezerSearchResults> {
     albums: (albumsData.data ?? []).map(mapSearchAlbum),
     artists: (artistsData.data ?? []).map(mapDeezerArtist),
   };
+}
+
+/**
+ * Given any version of a track, returns the canonical (original) version —
+ * the one with the lowest Deezer ID among all results that share the same
+ * clean title and artist. Falls back to the input track on any error.
+ */
+export async function resolveCanonicalTrack(track: Track): Promise<Track> {
+  try {
+    const query = `${cleanTitle(track.title)} ${track.artist}`;
+    const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=20`);
+    if (!res.ok) return track;
+    const data = await res.json();
+    const cleanedTitle = cleanTitle(track.title).toLowerCase();
+    const artistLower = track.artist.toLowerCase();
+    const matches: Track[] = (data.data ?? [])
+      .map(mapDeezerTrack)
+      .filter((c: Track) =>
+        cleanTitle(c.title).toLowerCase() === cleanedTitle &&
+        c.artist.toLowerCase() === artistLower
+      );
+    if (matches.length === 0) return track;
+    return matches.reduce((best, c) => parseInt(c.id) < parseInt(best.id) ? c : best);
+  } catch {
+    return track;
+  }
 }

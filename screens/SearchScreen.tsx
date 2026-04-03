@@ -17,11 +17,38 @@ import { useTheme } from '../store/theme';
 import { AppTheme } from '../constants/themes';
 import { Album, Track } from '../constants/mockData';
 import AlbumCover from '../components/AlbumCover';
-import { searchAll, getTopAlbums, DeezerArtist, DeezerSearchResults } from '../services/deezer';
+import { searchAll, getTopAlbums, cleanTitle, DeezerArtist, DeezerSearchResults } from '../services/deezer';
+import { canonicalSongKey } from '../store/ratings';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type FilterType = 'all' | 'albums' | 'songs' | 'artists';
+
+function dedupeSearchTracks(tracks: Track[]): Track[] {
+  const seen = new Map<string, Track>();
+  for (const t of tracks) {
+    const key = canonicalSongKey(t);
+    const ex = seen.get(key);
+    if (!ex) { seen.set(key, t); continue; }
+    const tLen = cleanTitle(t.title).length;
+    const exLen = cleanTitle(ex.title).length;
+    // Prefer shorter clean title (original has no suffix); tiebreak on lower Deezer ID (older = original)
+    if (tLen < exLen || (tLen === exLen && parseInt(t.id) < parseInt(ex.id))) {
+      seen.set(key, t);
+    }
+  }
+  return [...seen.values()];
+}
+
+function dedupeSearchAlbums(albums: Album[]): Album[] {
+  const seen = new Map<string, Album>();
+  for (const a of albums) {
+    const key = `${cleanTitle(a.title).toLowerCase()}::${a.artist.toLowerCase()}`;
+    const ex = seen.get(key);
+    if (!ex || (a.year > 0 && (ex.year === 0 || a.year < ex.year))) seen.set(key, a);
+  }
+  return [...seen.values()];
+}
 
 const FILTERS: { key: FilterType; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -59,7 +86,14 @@ export default function SearchScreen() {
     setSearchError(null);
     debounceRef.current = setTimeout(() => {
       searchAll(query)
-        .then((r) => { setResults(r); setSearchError(null); })
+        .then((r) => {
+          setResults({
+            albums: dedupeSearchAlbums(r.albums),
+            tracks: dedupeSearchTracks(r.tracks),
+            artists: r.artists,
+          });
+          setSearchError(null);
+        })
         .catch((e) => {
           console.error('[Spotify search error]', e?.message ?? e);
           setSearchError(e?.message ?? 'Search failed');
@@ -154,7 +188,7 @@ export default function SearchScreen() {
                         >
                           <AlbumCover album={album} size={50} borderRadius={8} />
                           <View style={styles.resultInfo}>
-                            <Text style={styles.resultTitle} numberOfLines={1}>{album.title}</Text>
+                            <Text style={styles.resultTitle} numberOfLines={1}>{cleanTitle(album.title)}</Text>
                             <Text style={styles.resultSub} numberOfLines={1}>{album.artist} · {album.year}</Text>
                           </View>
                           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
@@ -183,7 +217,7 @@ export default function SearchScreen() {
                         >
                           <AlbumCover album={track.album} size={50} borderRadius={8} />
                           <View style={styles.resultInfo}>
-                            <Text style={styles.resultTitle} numberOfLines={1}>{track.title}</Text>
+                            <Text style={styles.resultTitle} numberOfLines={1}>{cleanTitle(track.title)}</Text>
                             <Text style={styles.resultSub} numberOfLines={1}>{track.artist}</Text>
                           </View>
                           <Text style={styles.duration}>{track.duration}</Text>
@@ -204,7 +238,7 @@ export default function SearchScreen() {
                   <View style={styles.section}>
                     {filter === 'all' && <Text style={styles.sectionTitle}>Artists</Text>}
                     {results.artists.map((artist: DeezerArtist) => (
-                      <View key={artist.id} style={styles.resultRow}>
+                      <TouchableOpacity key={artist.id} style={styles.resultRow} onPress={() => navigation.navigate('ArtistDetail', { id: artist.id, name: artist.name })}>
                         {artist.image ? (
                           <Image source={{ uri: artist.image }} style={styles.artistImage} />
                         ) : (
@@ -219,8 +253,8 @@ export default function SearchScreen() {
                             {artist.followersCount > 0 ? ` · ${formatFollowers(artist.followersCount)}` : ''}
                           </Text>
                         </View>
-                        <Ionicons name="person" size={16} color={colors.muted} />
-                      </View>
+                        <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                      </TouchableOpacity>
                     ))}
                   </View>
                 )}

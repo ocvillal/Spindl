@@ -37,8 +37,12 @@ function deduplicateAlbums(albums: Album[]): Album[] {
       // Prefer earliest year (original release)
       if (yr > 0 && (exYr === 0 || yr < exYr)) {
         seen.set(key, album);
-      } else if (yr === exYr && album.title.length < existing.title.length) {
-        seen.set(key, album);
+      } else if (yr === exYr) {
+        // Same year: prefer shorter title, then lower Deezer ID (older = original release)
+        if (album.title.length < existing.title.length ||
+            (album.title.length === existing.title.length && parseInt(album.id) < parseInt(existing.id))) {
+          seen.set(key, album);
+        }
       }
     }
   }
@@ -50,7 +54,10 @@ function deduplicateTracks(tracks: Track[]): Track[] {
   for (const track of tracks) {
     const key = normalizeTitle(track.title);
     const existing = seen.get(key);
-    if (!existing || track.title.length < existing.title.length) {
+    if (!existing) { seen.set(key, track); continue; }
+    const tLen = cleanTitle(track.title).length;
+    const exLen = cleanTitle(existing.title).length;
+    if (tLen < exLen || (tLen === exLen && parseInt(track.id) < parseInt(existing.id))) {
       seen.set(key, track);
     }
   }
