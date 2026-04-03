@@ -13,6 +13,8 @@ export function cleanTitle(title: string): string {
     .replace(/\s*[\(\[]\s*(deluxe|anniversary|expanded|super deluxe|special|bonus tracks?)(\s+edition)?\s*[\)\]]/gi, '')
     // Strip year+Mix variants: (2015 Mix), (2023 Mix)
     .replace(/\s*[\(\[]\s*\d{4}\s+[Mm]ix\s*[\)\]]/g, '')
+    // Strip featured artist markers: (feat. X), (ft. X), (featuring X), (with X)
+    .replace(/\s*[\(\[]\s*(feat\.?|ft\.?|featuring|with)\s+[^\)\]]+\s*[\)\]]/gi, '')
     // Strip live/acoustic/demo/mono/stereo variants: (Live), (Live at Budokan), (Acoustic Version), (Demo), (Mono), (Stereo)
     .replace(/\s*[\(\[]\s*(live\b[^\)\]]*|acoustic(\s+version)?|demo(\s+version)?|mono|stereo)\s*[\)\]]/gi, '')
     // Strip bare trailing variants preceded by dash: "Song Title - Live", "Song Title - Acoustic"

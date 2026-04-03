@@ -17,12 +17,13 @@ import { getTopTracksForPeriod } from '../services/charts';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../store/auth';
 import { useProfile } from '../store/profile';
-import { useRatings } from '../store/ratings';
+import { useRatings, SongEntry } from '../store/ratings';
 import {
   SPOTIFY_AUTH_CONFIG, DISCOVERY,
   getSpotifyUserToken, handleSpotifyCallback, addToSpotifyQueue,
 } from '../services/spotifyAuth';
 import { findSpotifyTrackUri } from '../services/spotify';
+import { cleanTitle } from '../services/deezer';
 import {
   buildTasteProfile, scoreTrack,
   deduplicateTracks,
@@ -40,7 +41,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3;
 const EXIT_DURATION = 220;
 const SHEET_HEIGHT = 340;
-const POOL_REFETCH_THRESHOLD = 5; // fetch more when pool drops below this
+const POOL_REFETCH_THRESHOLD = 8; // fetch more when pool drops below this
 
 function openSpotifyFallback(spotifyUri: string | null, track: Track) {
   const appUri = spotifyUri ?? `spotify:search:${encodeURIComponent(`${track.title} ${track.artist}`)}`;
@@ -63,6 +64,11 @@ function getItemSignalData(di: DiscoverItem): { genres: string[]; artist: string
   return { genres: di.item.album?.genre ?? [], artist: di.item.artist, year: di.item.album?.year ?? 0 };
 }
 
+/** Canonical key matching the format used in the ratings entries table. */
+function trackKey(t: { title: string; artist: string }): string {
+  return `${cleanTitle(t.title).toLowerCase()}::${t.artist.toLowerCase()}`;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function DiscoverScreen() {
@@ -71,7 +77,7 @@ export default function DiscoverScreen() {
   const navigation = useNavigation<Nav>();
   const { session } = useAuth();
   const { profile } = useProfile();
-  const { logSong } = useRatings();
+  const { logSong, entries } = useRatings();
 
   // Spotify OAuth request — triggers the login flow when promptAsync() is called
   const [request, response, promptAsync] = useAuthRequest(
@@ -113,7 +119,6 @@ export default function DiscoverScreen() {
   const [showRating, setShowRating]   = useState(false);
   const [ratingMode, setRatingMode]   = useState(false);
   const [pendingRating, setPendingRating] = useState(0);
-  const [actionLabel, setActionLabel] = useState<Action | null>(null);
   const [exitingItem, setExitingItem] = useState<DiscoverItem | null>(null);
 
   // Mutable refs — don't need re-renders
@@ -123,6 +128,7 @@ export default function DiscoverScreen() {
   const itemSignalMapRef= useRef<Map<string, ItemSignal>>(new Map());
   const seenIdsRef      = useRef<Set<string>>(new Set());
   const isFetchingRef   = useRef(false);
+  const fetchLimitRef   = useRef(150); // grows each refetch to pull progressively deeper cuts
   const currentItemRef  = useRef<DiscoverItem | null>(null); // stable ref for closures
 
   // Keep ref in sync with state
@@ -147,6 +153,24 @@ export default function DiscoverScreen() {
 
   useEffect(() => { loadItems(); }, []);
 
+  // Re-filter pool whenever the library changes — handles race condition at load
+  // and songs logged mid-session from any screen
+  useEffect(() => {
+    if (poolRef.current.length === 0) return;
+    const loggedKeys = new Set(
+      entries
+        .filter((e): e is SongEntry => e.type === 'song')
+        .map((e) => trackKey(e.track))
+    );
+    const filtered = poolRef.current.filter(
+      (s) => !loggedKeys.has(trackKey(s.discoverItem.item))
+    );
+    if (filtered.length !== poolRef.current.length) {
+      poolRef.current = filtered;
+      showTopTwo(filtered);
+    }
+  }, [entries]);
+
   // ── Data loading ──────────────────────────────────────────────────────────
 
   async function loadItems() {
@@ -154,29 +178,29 @@ export default function DiscoverScreen() {
     try {
       const [
         chartTracksRes,
-        { data: entriesData },
         { data: actionsData },
       ] = await Promise.all([
-        getTopTracksForPeriod('week', 20),
-        supabase.from('entries').select('*'),
+        getTopTracksForPeriod('year', 100),
         supabase.from('discover_actions').select('*'),
       ]);
 
       const seenIds = new Set<string>((actionsData ?? []).map((r: any) => String(r.track_id)));
-      // Also exclude songs already in the user's collection
-      (entriesData ?? []).filter((e: any) => e.type === 'song').forEach((e: any) => seenIds.add(String(e.item_id)));
+      // Seed seenIds with canonical keys from the in-memory ratings store
+      entries
+        .filter((e): e is SongEntry => e.type === 'song')
+        .forEach((e) => seenIds.add(e.id));
       seenIdsRef.current = seenIds;
 
-      const entries: SignalEntry[] = (entriesData ?? []).map((row: any) => ({
-        type: row.type, rating: row.rating, liked: row.liked,
-        albumData: row.type === 'album' ? row.album_data : row.track_data?.album,
+      const signalEntries: SignalEntry[] = entries.map((e) => ({
+        type: e.type, rating: e.rating, liked: e.liked,
+        albumData: e.type === 'album' ? (e as any).album : (e as any).track?.album,
       }));
       const actions: SignalAction[] = (actionsData ?? []).map((row: any) => ({
         action: row.action, rating: row.rating ?? null,
         trackData: { album: row.track_data?.album ?? {}, artist: row.track_data?.artist ?? '' },
       }));
 
-      const tasteProfile = buildTasteProfile(profile?.genres ?? [], profile?.favArtists ?? [], entries, actions);
+      const tasteProfile = buildTasteProfile(profile?.genres ?? [], profile?.favArtists ?? [], signalEntries, actions);
       profileRef.current = tasteProfile;
 
       if (session?.user.id) upsertTasteVector(session.user.id, tasteProfile).catch(() => {});
@@ -195,12 +219,21 @@ export default function DiscoverScreen() {
         ? blendWithSimilarUsers(tasteProfile, allVectors, session.user.id)
         : tasteProfile;
 
-      let allTracks = deduplicateTracks(chartTracksRes).filter((t) => !seenIds.has(t.id));
+      // Build library key set directly from in-memory entries — no race condition
+      const loggedKeys = new Set(
+        entries
+          .filter((e): e is SongEntry => e.type === 'song')
+          .map((e) => trackKey(e.track))
+      );
 
-      // If everything has been seen, reset and show full pool again
+      let allTracks = deduplicateTracks(chartTracksRes).filter(
+        (t) => !seenIds.has(t.id) && !seenIds.has(trackKey(t)) && !loggedKeys.has(trackKey(t))
+      );
+
+      // If everything has been seen, reset discover_actions history but keep library filter
       if (allTracks.length === 0) {
-        seenIdsRef.current = new Set();
-        allTracks = deduplicateTracks(chartTracksRes);
+        seenIdsRef.current = new Set(loggedKeys);
+        allTracks = deduplicateTracks(chartTracksRes).filter((t) => !loggedKeys.has(trackKey(t)));
       }
 
       const scored = buildScoredPool(allTracks, blendedProfile, itemSignalMap, tasteProfile.signalCount);
@@ -259,6 +292,7 @@ export default function DiscoverScreen() {
    */
   function advanceQueue(swipedItem: DiscoverItem, action: Action, rating: number | null) {
     seenIdsRef.current.add(swipedItem.item.id);
+    seenIdsRef.current.add(trackKey(swipedItem.item));
 
     // 1. Update live taste profile with this swipe
     if (profileRef.current) {
@@ -284,7 +318,9 @@ export default function DiscoverScreen() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const moreTracks = await getTopTracksForPeriod('week', 20);
+      const limit = fetchLimitRef.current;
+      fetchLimitRef.current = Math.min(limit + 50, 500);
+      const moreTracks = await getTopTracksForPeriod('year', limit);
       const p = profileRef.current;
       if (!p) return;
 
@@ -293,8 +329,15 @@ export default function DiscoverScreen() {
         : p;
 
       const existingIds = new Set(poolRef.current.map((s) => s.discoverItem.item.id));
+      const loggedKeys = new Set(
+        entries.filter((e): e is SongEntry => e.type === 'song').map((e) => trackKey(e.track))
+      );
       const freshTracks = deduplicateTracks(moreTracks).filter(
-        (t) => !seenIdsRef.current.has(t.id) && !existingIds.has(t.id)
+        (t) =>
+          !seenIdsRef.current.has(t.id) &&
+          !seenIdsRef.current.has(trackKey(t)) &&
+          !existingIds.has(t.id) &&
+          !loggedKeys.has(trackKey(t))
       );
 
       if (freshTracks.length === 0) return;
@@ -325,16 +368,10 @@ export default function DiscoverScreen() {
         [null, { dx: position.x, dy: position.y }],
         {
           useNativeDriver: false,
-          listener: ((_: any, gesture: any) => {
-            if (gesture.dx > 60) setActionLabel('listened');
-            else if (gesture.dx < -60) setActionLabel('not_heard');
-            else if (gesture.dy < -60) setActionLabel('saved');
-            else setActionLabel(null);
-          }) as any,
+          listener: ((_: any, _gesture: any) => {}) as any,
         }
       ) as any,
       onPanResponderRelease: (_, gesture) => {
-        setActionLabel(null);
         if (gesture.dx > SWIPE_THRESHOLD)       commitSwipeRef.current('listened', 'right');
         else if (gesture.dx < -SWIPE_THRESHOLD) commitSwipeRef.current('not_heard', 'left');
         else if (gesture.dy < -SWIPE_THRESHOLD) commitSwipeRef.current('saved', 'up');
