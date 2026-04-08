@@ -7,14 +7,6 @@ type Period = 'week' | 'month' | 'year';
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-/** Returns the ISO date string (YYYY-MM-DD) for the most recent Monday. */
-function getMonday(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
-  const diff = day === 0 ? 6 : day - 1; // days since Monday
-  d.setDate(d.getDate() - diff);
-  return d.toISOString().split('T')[0];
-}
 
 function cutoffDate(period: Period): string {
   const d = new Date();
@@ -26,7 +18,7 @@ function cutoffDate(period: Period): string {
 
 // ─── Spotify Artwork Enrichment ──────────────────────────────────
 
-async function enrichWithDeezer(tracks: Track[]): Promise<Track[]> {
+export async function enrichWithDeezer(tracks: Track[]): Promise<Track[]> {
   const covers = await Promise.all(
     tracks.map(({ title, artist }) =>
       fetch(`https://api.deezer.com/search?q=track:"${encodeURIComponent(title)}" artist:"${encodeURIComponent(artist)}"&limit=1`)
@@ -46,26 +38,26 @@ async function enrichWithDeezer(tracks: Track[]): Promise<Track[]> {
 // ─── Seeding ─────────────────────────────────────────────────────
 
 /**
- * Fire-and-forget: checks if this week's Last.fm chart has been stored in Supabase.
- * If not, fetches and stores it. Safe to call on every app open.
+ * Fire-and-forget: checks if today's Last.fm chart has been stored in Supabase.
+ * If not, fetches and stores it. Safe to call on every app open — re-seeds daily.
  */
 export async function seedWeeklyChart(): Promise<void> {
-  const weekStart = getMonday(new Date());
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   const { data: existing } = await supabase
     .from('chart_snapshots')
     .select('id')
-    .eq('week_start', weekStart)
+    .eq('week_start', today)
     .limit(1);
 
-  if (existing && existing.length > 0) return; // already seeded this week
+  if (existing && existing.length > 0) return; // already seeded today
 
   const tracks = await fetchTopTracks(50);
   if (tracks.length === 0) return;
 
   await supabase.from('chart_snapshots').upsert(
     tracks.map((t) => ({
-      week_start: weekStart,
+      week_start: today,
       track_id: `${t.artist}-${t.title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       track_name: t.title,
       artist_name: t.artist,
@@ -124,6 +116,6 @@ export async function getTopTracksForPeriod(period: Period, limit = 10): Promise
  * Returns the top albums for the given period.
  * Uses Deezer's current global chart (Last.fm has no global album chart endpoint).
  */
-export async function getTopAlbumsForPeriod(period: Period, limit = 10): Promise<Album[]> {
+export async function getTopAlbumsForPeriod(_period: Period, limit = 10): Promise<Album[]> {
   return deezerTopAlbums(limit);
 }

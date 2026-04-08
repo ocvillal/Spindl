@@ -16,7 +16,9 @@ import {
 import AlbumCover from '../components/AlbumCover';
 import Avatar from '../components/Avatar';
 import StarRating from '../components/StarRating';
-import { seedWeeklyChart, getTopTracksForPeriod, getTopAlbumsForPeriod } from '../services/charts';
+import { seedWeeklyChart, getTopAlbumsForPeriod, enrichWithDeezer } from '../services/charts';
+import { fetchTopTracks } from '../services/lastfm';
+import { cleanTitle } from '../services/deezer';
 import { RootStackParamList } from '../App';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -49,7 +51,7 @@ export default function HomeScreen() {
     try {
       const [albums, tracks] = await Promise.all([
         getTopAlbumsForPeriod('week', 10),
-        getTopTracksForPeriod('week', 10),
+        fetchTopTracks(10).then(enrichWithDeezer),
       ]);
       setTrendingAlbums(albums);
       setTopTracks(tracks);
@@ -176,7 +178,7 @@ export default function HomeScreen() {
                     <Text style={[styles.songRank, idx < 3 && styles.songRankTop]}>{idx + 1}</Text>
                     <AlbumCover album={track.album} size={44} borderRadius={8} />
                     <View style={styles.songInfo}>
-                      <Text style={styles.songTitle} numberOfLines={1}>{track.title}</Text>
+                      <Text style={styles.songTitle} numberOfLines={1}>{cleanTitle(track.title)}</Text>
                       <Text style={styles.songArtist} numberOfLines={1}>{track.artist}</Text>
                     </View>
                     <Text style={styles.songDuration}>{track.duration}</Text>
