@@ -2,6 +2,19 @@
 
 A music diary app — log albums, rate songs, and share with friends. Built with React Native + Expo.
 
+## Demo
+
+<!-- Drag your video file into this README on github.com to upload it, then paste the generated
+     https://github.com/ocvillal/Spindl/assets/... link on the line below. -->
+
+## Features
+
+- **Diary & logging** — log albums and rate individual songs, kept in a personal diary/collection
+- **Discover** — browse charts and personalized recommendations
+- **Search** — look up albums and artists via Deezer/Spotify
+- **Social** — follow friends, view their activity feed
+- **Profile & auth** — Supabase-backed accounts with a themeable profile
+
 ## Stack
 
 - **Expo SDK 54** / **React Native 0.81.5** / **React 19**
