@@ -4,6 +4,10 @@ A music diary app — log albums, rate songs, and share with friends. Built with
 
 ## Demo
 
+
+https://github.com/user-attachments/assets/5156a560-c8a5-4e7b-91e4-7105e5bc94f4
+
+
 <!-- Drag your video file into this README on github.com to upload it, then paste the generated
      https://github.com/ocvillal/Spindl/assets/... link on the line below. -->
 
